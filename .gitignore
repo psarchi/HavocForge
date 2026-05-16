@@ -48,3 +48,13 @@ data/profile/
 # Personal / local-only notes — not part of the project
 _GITHUB_SETTINGS.md
 _old_for_deletion/
+
+# Demo runs locally with secrets (Cloudflare tunnel creds, real config.yml,
+# cert JSONs, etc.). Existing committed demo source files stay tracked; this
+# rule only blocks NEW files from being added to the repo.
+demo/
+
+# Local working copy of the demo where actual Cloudflare creds + real
+# config.yml live. Never committed.
+demo_local/
+
