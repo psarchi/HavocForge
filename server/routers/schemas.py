@@ -1,12 +1,14 @@
 from __future__ import annotations
 
+import asyncio
 import time
 
 from fastapi import APIRouter, Query, Request, Depends
 from fastapi.responses import JSONResponse
-from mock_engine.context import GenContext
-from mock_engine.chaos.access import get_chaos_manager
-from mock_engine.observability import (
+from pydantic import BaseModel, Field
+from havocforge.context import GenContext
+from havocforge.chaos.access import get_chaos_manager
+from havocforge.observability import (
     generation_duration_seconds,
     items_generated_total,
     seed_source_total,
@@ -69,7 +71,7 @@ async def generate_schema(
         include_metadata=include_metadata,
     )
 
-    from mock_engine.config import get_config_manager
+    from havocforge.config import get_config_manager
     import orjson
     from fastapi import HTTPException
 
@@ -121,7 +123,12 @@ async def generate_schema(
         gen = get_generator(name)
 
         gen_start = time.perf_counter()
-        items = [gen.generate(ctx) for _ in range(count)]
+        # Generation is sync and may issue blocking sync-Redis correlation calls
+        # (see havocforge/generators/composites/object.py). Off-load to a worker
+        # thread so the FastAPI event loop stays responsive to other requests.
+        items = await asyncio.to_thread(
+            lambda: [gen.generate(ctx) for _ in range(count)]
+        )
         gen_duration = time.perf_counter() - gen_start
 
         logger.debug("rest_used_live_generation", schema=name, count=len(items))
@@ -140,6 +147,12 @@ async def generate_schema(
 
     mgr = get_chaos_manager(ctx)
     temp_payload = {"items": items}
+
+    # time_skew / schema_time_skew / late_arrival need field hints to fire.
+    # The preview endpoint already auto-detects these from the generated items;
+    # do the same here so forced ops behave consistently across both routes.
+    if forced:
+        _patch_mgr_for_body_ops(mgr, forced, items, schema_name=name)
 
     chaos_start = time.perf_counter()
     result, meta = mgr.apply(
@@ -174,14 +187,14 @@ async def generate_schema(
     dataset_id = None
     if persist:
         try:
-            from mock_engine.persistence.id_generator import generate_id
+            from havocforge.persistence.id_generator import generate_id
             from datetime import datetime, timedelta
-            from mock_engine.observability import (
+            from havocforge.observability import (
                 persistence_writes_total,
                 persistence_redis_writes_total,
                 persistence_dataset_size_bytes,
             )
-            from mock_engine.config import get_config_manager
+            from havocforge.config import get_config_manager
             import json
 
             try:
@@ -217,7 +230,7 @@ async def generate_schema(
             persistence_redis_writes_total.labels(schema=name, status="success").inc()
 
         except Exception as e:
-            from mock_engine.observability import (
+            from havocforge.observability import (
                 persistence_writes_total,
                 persistence_redis_writes_total,
             )
@@ -253,3 +266,175 @@ async def generate_schema(
     return JSONResponse(
         payload, status_code=status_override or 200, headers=headers_override or None
     )
+
+
+class PreviewRequest(BaseModel):
+    schema: dict
+    count: int = Field(10, ge=1, le=50)
+    seed: int | None = None
+    chaos_ops: list[str] | None = None
+
+
+_DRIFT_OPS = frozenset({"schema_drift", "data_drift"})
+
+
+def _detect_datetime_fields(items: list) -> list[str]:
+    from havocforge.chaos.utils import parse_timestamp
+    if not items or not isinstance(items[0], dict):
+        return []
+    return [k for k, v in items[0].items() if parse_timestamp(v)[0] is not None]
+
+
+def _seed_temporal_tracker(schema_name: str) -> None:
+    from havocforge.chaos import get_temporal_tracker
+    import datetime
+    tracker = get_temporal_tracker()
+    now_us = int(datetime.datetime.now(datetime.timezone.utc).timestamp() * 1_000_000)
+    first_us = now_us - 2 * 3600 * 1_000_000
+    try:
+        tracker.get_or_init(schema_name, first_us)
+        tracker.update_timeline(schema_name, now_us)
+    except Exception:
+        pass
+
+
+def _patch_mgr_for_body_ops(
+    mgr, chaos_ops: list, items: list, schema_name: str = "preview"
+) -> None:
+    """Patch time-op fields and late_arrival schema_name in the manager in-place.
+
+    Auto-detects datetime fields from the first generated item and injects them
+    into ``time_skew`` / ``schema_time_skew`` op params, then re-instantiates
+    the ops so the new params take effect. Also seeds the temporal tracker for
+    ``late_arrival``.
+
+    ``schema_name`` defaults to ``"preview"`` for the preview endpoint; pass the
+    real schema name when calling from the regular generate route.
+    """
+    dt_fields = _detect_datetime_fields(items)
+    if dt_fields:
+        for time_op in ("time_skew", "schema_time_skew"):
+            if time_op in chaos_ops and time_op in mgr._op_params_by_name:
+                mgr._op_params_by_name[time_op]["fields"] = dt_fields
+                op_cls = mgr.registry.get(time_op)
+                if op_cls:
+                    try:
+                        mgr._op_instances[time_op] = op_cls(**mgr._op_params_by_name[time_op])
+                    except Exception:
+                        pass
+
+    if "late_arrival" in chaos_ops:
+        _seed_temporal_tracker(schema_name)
+        if "late_arrival" in mgr._op_params_by_name:
+            mgr._op_params_by_name["late_arrival"]["schema_name"] = schema_name
+            op_cls = mgr.registry.get("late_arrival")
+            if op_cls:
+                try:
+                    mgr._op_instances["late_arrival"] = op_cls(**mgr._op_params_by_name["late_arrival"])
+                except Exception:
+                    pass
+
+
+_PREVIEW_DRIFT_KEY = "preview:drift:state"
+
+
+@router.post("/schemas/generate-preview")
+async def generate_preview(
+    body: PreviewRequest,
+    redis=Depends(get_redis),
+) -> JSONResponse:
+    """Generate items from an ad-hoc schema dict without registration or persistence."""
+    import hashlib as _hashlib
+    import json as _json
+    import havocforge.api as engine_api
+    from havocforge.chaos.drift import get_drift_coordinator
+    from havocforge.schema.builder import build_schema, _synthesize_root_spec
+    from havocforge.schema.registry import SchemaRegistry
+
+    chaos_ops = body.chaos_ops or []
+    drift_ops = [op for op in chaos_ops if op in _DRIFT_OPS]
+    body_ops  = [op for op in chaos_ops if op not in _DRIFT_OPS]
+
+    chaos_meta: dict = {"ops_fired": [], "status": 200, "headers": {}}
+
+    schema_hash = _hashlib.md5(
+        _json.dumps(body.schema, sort_keys=True).encode()
+    ).hexdigest()
+
+    # ── Step 1: register schema so drift ops can mutate it ──────────────────
+    if drift_ops:
+        # Load accumulated drift spec from Redis — shared across all workers.
+        # If the user changed their schema, start fresh from body.schema.
+        base_spec = body.schema
+        try:
+            saved = await redis.get(_PREVIEW_DRIFT_KEY)
+            if saved and saved.get("hash") == schema_hash:
+                base_spec = saved["spec"]
+        except Exception:
+            pass
+
+        try:
+            # Always clear coordinator so exactly 1 fresh drift layer per request.
+            get_drift_coordinator().clear_schema("preview")
+            schema_doc = build_schema("preview", base_spec)
+            SchemaRegistry.replace("preview", schema_doc)
+        except Exception:
+            drift_ops = []  # schema couldn't be registered; skip drift
+
+    # ── Step 2: apply drift ops (they mutate the registered schema) ─────────
+    if drift_ops:
+        drift_mgr = get_chaos_manager(None, pre_gen=True)
+        drift_result, _ = drift_mgr.apply(
+            body={"items": []},
+            schema_name="preview",
+            forced_activation=drift_ops,
+        )
+        chaos_meta["ops_fired"] += getattr(drift_result, "descriptions", []) or []
+
+    # ── Step 3: generate items from the (possibly drifted) schema ───────────
+    if drift_ops:
+        try:
+            latest = SchemaRegistry.get_latest_name("preview")
+            drifted_doc = SchemaRegistry.get(latest)
+            drifted_spec = _synthesize_root_spec(drifted_doc.contracts_by_path)
+            gen = engine_api.build_generator(drifted_spec)
+            # Persist new accumulated spec to Redis for the next request.
+            try:
+                await redis.set(
+                    _PREVIEW_DRIFT_KEY,
+                    {"hash": schema_hash, "spec": drifted_spec},
+                    ttl_hours=1,
+                )
+            except Exception:
+                pass
+        except Exception:
+            gen = engine_api.build_generator(body.schema)
+    else:
+        gen = engine_api.build_generator(body.schema)
+
+    items = await asyncio.to_thread(
+        engine_api.generate_many, gen, body.count, body.seed
+    )
+
+    # ── Step 4: apply body-level chaos ops ──────────────────────────────────
+    if body_ops:
+        body_mgr = get_chaos_manager(None)
+        _patch_mgr_for_body_ops(body_mgr, body_ops, items)
+        result, resp_meta = body_mgr.apply(
+            body={"items": items},
+            schema_name="preview",
+            forced_activation=body_ops,
+        )
+        items = (
+            getattr(result, "body", {}).get("items", items)
+            if hasattr(result, "body")
+            else items
+        )
+        chaos_meta["ops_fired"] += getattr(result, "descriptions", []) or []
+        chaos_meta["status"] = resp_meta.get("status", 200)
+        chaos_meta["headers"] = {
+            k: v for k, v in (resp_meta.get("headers") or {}).items()
+            if k.lower() != "content-type"
+        }
+
+    return JSONResponse({"items": items, "chaos": chaos_meta})

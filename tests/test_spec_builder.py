@@ -1,4 +1,4 @@
-from mock_engine.api import build_generator, generate_one
+from havocforge.api import build_generator, generate_one
 
 
 def test_spec_sugar_normalization():

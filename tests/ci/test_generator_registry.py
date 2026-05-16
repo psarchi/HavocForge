@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from mock_engine.registry import Registry
-from mock_engine.generators.base import BaseGenerator
+from havocforge.registry import Registry
+from havocforge.generators.base import BaseGenerator
 
 
 TESTS_DIR = Path(__file__).resolve().parents[2] / "tests" / "core" / "generators"

@@ -5,11 +5,11 @@ from pathlib import Path
 import pytest
 import yaml
 
-from mock_engine import api as engine_api
-from mock_engine.context import GenContext
-from mock_engine.errors import PoolEmptyError
-from mock_engine.schema.builder import build_schema
-from mock_engine.schema.registry import SchemaRegistry
+from havocforge import api as engine_api
+from havocforge.context import GenContext
+from havocforge.errors import PoolEmptyError
+from havocforge.schema.builder import build_schema
+from havocforge.schema.registry import SchemaRegistry
 
 
 SCHEMAS_DIR = Path(__file__).resolve().parents[2] / "schemas"

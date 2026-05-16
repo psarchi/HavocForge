@@ -6,7 +6,7 @@ from typing import Annotated
 
 from fastapi import Depends, HTTPException, Header, status
 
-from mock_engine.config import get_config_manager
+from havocforge.config import get_config_manager
 from server.logging import get_logger
 
 logger = get_logger(__name__)

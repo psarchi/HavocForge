@@ -1,0 +1,323 @@
+{
+  "title": "Havocforge - Overview",
+  "timezone": "browser",
+  "schemaVersion": 38,
+  "version": 0,
+  "refresh": "5s",
+  "time": {
+    "from": "now-15m",
+    "to": "now"
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "API Traffic (REST + Streaming)",
+      "type": "graph",
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 16,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(http_requests_total[1m])) by (endpoint)",
+          "legendFormat": "Request Rate ({{endpoint}})",
+          "refId": "A"
+        },
+        {
+          "expr": "histogram_quantile(0.50, sum(rate(http_request_duration_seconds_bucket[1m])) by (le))",
+          "legendFormat": "p50 Latency",
+          "refId": "B"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket[1m])) by (le))",
+          "legendFormat": "p95 Latency",
+          "refId": "C"
+        },
+        {
+          "expr": "histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket[1m])) by (le))",
+          "legendFormat": "p99 Latency",
+          "refId": "D"
+        },
+        {
+          "expr": "sum(rate(http_requests_total{status_code=~\"5..\"}[1m])) / sum(rate(http_requests_total[1m])) * 100",
+          "legendFormat": "Error Rate %",
+          "refId": "E"
+        },
+        {
+          "expr": "sum(websocket_active_connections)",
+          "legendFormat": "Active Connections",
+          "refId": "F"
+        }
+      ],
+      "yaxes": [
+        {
+          "label": "Rate / Connections",
+          "show": true,
+          "min": 0
+        },
+        {
+          "label": "Latency (s) / Error %",
+          "show": true,
+          "min": 0
+        }
+      ],
+      "xaxis": {
+        "show": true,
+        "mode": "time"
+      },
+      "legend": {
+        "show": true,
+        "alignAsTable": true,
+        "rightSide": false,
+        "values": true,
+        "current": true,
+        "max": true,
+        "min": true,
+        "avg": true
+      },
+      "tooltip": {
+        "shared": true,
+        "sort": 0,
+        "value_type": "individual"
+      }
+    },
+    {
+      "id": 2,
+      "title": "Generator Performance",
+      "type": "graph",
+      "gridPos": {
+        "x": 0,
+        "y": 8,
+        "w": 8,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, sum(rate(generator_duration_seconds_bucket[1m])) by (le, generator)) * 1000",
+          "legendFormat": "p50 (ms) - {{generator}}",
+          "refId": "A"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(generator_duration_seconds_bucket[1m])) by (le, generator)) * 1000",
+          "legendFormat": "p95 (ms) - {{generator}}",
+          "refId": "B"
+        },
+        {
+          "expr": "histogram_quantile(0.99, sum(rate(generator_duration_seconds_bucket[1m])) by (le, generator)) * 1000",
+          "legendFormat": "p99 (ms) - {{generator}}",
+          "refId": "C"
+        },
+        {
+          "expr": "sum(rate(generator_invocations_total[1m])) by (generator)",
+          "legendFormat": "Invocations/s - {{generator}}",
+          "refId": "D"
+        }
+      ],
+      "yaxes": [
+        {
+          "label": "Duration (ms)",
+          "show": true,
+          "min": 0
+        },
+        {
+          "label": "Invocations/s",
+          "show": true,
+          "min": 0
+        }
+      ],
+      "legend": {
+        "show": true,
+        "alignAsTable": true,
+        "values": true,
+        "current": true,
+        "max": true,
+        "avg": true
+      }
+    },
+    {
+      "id": 3,
+      "title": "Chaos Operations",
+      "type": "graph",
+      "gridPos": {
+        "x": 8,
+        "y": 8,
+        "w": 8,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "sum(chaos_active_operations) by (op)",
+          "legendFormat": "Active: {{op}}",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(rate(chaos_op_executions_total{applied=\"true\"}[1m])) by (op)",
+          "legendFormat": "Rate: {{op}}",
+          "refId": "B"
+        },
+        {
+          "expr": "sum(rate(chaos_items_affected_total[1m])) by (op)",
+          "legendFormat": "Items Affected/s: {{op}}",
+          "refId": "C"
+        }
+      ],
+      "yaxes": [
+        {
+          "label": "Count / Rate",
+          "show": true,
+          "min": 0
+        }
+      ],
+      "legend": {
+        "show": true,
+        "alignAsTable": true,
+        "values": true,
+        "current": true
+      }
+    },
+    {
+      "id": 4,
+      "title": "Database & Redis Memory Usage",
+      "type": "graph",
+      "gridPos": {
+        "x": 0,
+        "y": 16,
+        "w": 8,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "sum(persistence_redis_cache_size_mb) by (schema)",
+          "legendFormat": "Redis: {{schema}}",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(persistence_postgres_cache_size_mb) by (schema)",
+          "legendFormat": "PostgreSQL: {{schema}}",
+          "refId": "B"
+        }
+      ],
+      "yaxes": [
+        {
+          "label": "Memory (MB)",
+          "show": true,
+          "min": 0
+        }
+      ],
+      "legend": {
+        "show": true,
+        "alignAsTable": true,
+        "values": true,
+        "current": true,
+        "max": true,
+        "avg": true
+      }
+    },
+    {
+      "id": 5,
+      "title": "Pre-generation Queue Sizes",
+      "type": "graph",
+      "gridPos": {
+        "x": 8,
+        "y": 16,
+        "w": 8,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "max(pregen_queue_size) by (schema)",
+          "legendFormat": "{{schema}}",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(pregen_generation_rate) by (schema)",
+          "legendFormat": "Gen Rate: {{schema}}",
+          "refId": "B"
+        }
+      ],
+      "yaxes": [
+        {
+          "label": "Queue Size / Items/s",
+          "show": true,
+          "min": 0
+        }
+      ],
+      "legend": {
+        "show": true,
+        "alignAsTable": true,
+        "values": true,
+        "current": true,
+        "max": true,
+        "avg": true
+      }
+    },
+    {
+      "id": 6,
+      "title": "Worker Status & Queue Fill Rate",
+      "type": "table",
+      "gridPos": {
+        "x": 0,
+        "y": 24,
+        "w": 16,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "max(pregen_queue_size) by (schema)",
+          "legendFormat": "{{schema}}",
+          "refId": "A",
+          "format": "table",
+          "instant": true
+        },
+        {
+          "expr": "sum(pregen_generation_rate) by (schema)",
+          "legendFormat": "{{schema}}",
+          "refId": "B",
+          "format": "table",
+          "instant": true
+        },
+        {
+          "expr": "sum(rate(items_generated_total{source=\"pregen\"}[1m])) by (schema)",
+          "legendFormat": "{{schema}}",
+          "refId": "C",
+          "format": "table",
+          "instant": true
+        }
+      ],
+      "transformations": [
+        {
+          "id": "merge",
+          "options": {}
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "job": true,
+              "instance": true
+            },
+            "renameByName": {
+              "schema": "Schema",
+              "Value #A": "Queue Size",
+              "Value #B": "Gen Rate (items/s)",
+              "Value #C": "Items Generated/s"
+            }
+          }
+        }
+      ],
+      "options": {
+        "showHeader": true,
+        "sortBy": [
+          {
+            "displayName": "Queue Size",
+            "desc": true
+          }
+        ]
+      }
+    }
+  ],
+  "uid": "havocforge-new"
+}

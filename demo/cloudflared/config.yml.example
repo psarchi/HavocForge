@@ -1,0 +1,22 @@
+# Cloudflare Tunnel config — copy to ~/.cloudflared/config.yml after creating
+# the tunnel (see demo/cloudflared/README.md for the full setup).
+
+tunnel: <YOUR-TUNNEL-UUID>
+credentials-file: /home/<you>/.cloudflared/<YOUR-TUNNEL-UUID>.json
+
+# Hostname routing: havoc.archils.dev -> the docker-compose demo on localhost:8080.
+# Anything that doesn't match an explicit ingress rule is rejected (the catch-all
+# at the bottom returns 404 — that's the safety net).
+ingress:
+  - hostname: havoc.archils.dev
+    service: http://localhost:8080
+    originRequest:
+      # Bound timeouts so a hung backend can't keep tunnel sockets open forever.
+      connectTimeout: 10s
+      noTLSVerify: false
+      # Tighter origin behavior — we're proxying a static + API only, no streaming.
+      keepAliveConnections: 4
+      keepAliveTimeout: 90s
+
+  # Catch-all — anything else returns 404 at the edge. Keep this last.
+  - service: http_status:404

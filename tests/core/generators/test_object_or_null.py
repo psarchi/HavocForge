@@ -13,8 +13,8 @@ def test_object_or_null_generator(
         Tuple of (passed: bool, data: dict)
     """
     try:
-        from mock_engine import api as engine_api
-        from mock_engine.context import GenContext
+        from havocforge import api as engine_api
+        from havocforge.context import GenContext
 
         spec = {
             "type": "object",

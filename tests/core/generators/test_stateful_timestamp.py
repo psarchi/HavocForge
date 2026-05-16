@@ -21,10 +21,10 @@ def test_stateful_timestamp_generator(
             type: stateful_timestamp
             increment: 1000000
         """
-        from mock_engine import api as engine_api
-        from mock_engine.context import GenContext
-        from mock_engine.schema.builder import build_schema
-        from mock_engine.schema.registry import SchemaRegistry
+        from havocforge import api as engine_api
+        from havocforge.context import GenContext
+        from havocforge.schema.builder import build_schema
+        from havocforge.schema.registry import SchemaRegistry
 
         schema_name = "stateful_timestamp_test"
         doc = build_schema(

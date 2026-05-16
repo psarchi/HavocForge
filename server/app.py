@@ -28,8 +28,8 @@ from server.errors import build_error_response, build_unhandled_response
 from server.logging import setup_logging
 from server.middleware.correlation import CorrelationMiddleware
 from server.middleware.metrics import MetricsMiddleware
-from mock_engine.errors import MockEngineError, PoolEmptyError, SchemaConfigError
-from mock_engine.observability import get_metrics_app
+from havocforge.errors import HavocforgeError, PoolEmptyError, SchemaConfigError
+from havocforge.observability import get_metrics_app
 
 __all__ = ["create_app", "app"]
 
@@ -39,7 +39,7 @@ async def lifespan(app: FastAPI):
     """Warm configuration and generator caches on startup."""
     import asyncio
     from server.deps import get_settings, warmup_all
-    from mock_engine.persistence.metrics_collector import MetricsCollector
+    from havocforge.persistence.metrics_collector import MetricsCollector
 
     # Setup structured logging
     setup_logging()
@@ -65,7 +65,7 @@ async def lifespan(app: FastAPI):
         metrics_interval = 30
 
     # Initialize shared Redis client (API only writes to Redis)
-    from mock_engine.persistence import RedisClient
+    from havocforge.persistence import RedisClient
     import redis as redis_sync
 
     # Use bytes responses for streaming/pregen queue hot path (avoids per-item UTF-8 decode in redis-py).
@@ -77,6 +77,12 @@ async def lifespan(app: FastAPI):
     app.state.correlation_redis = redis_sync.Redis.from_url(
         redis_url or "redis://localhost:6379", decode_responses=True
     )
+
+    # Construct publishers eagerly so concurrent first-requests can't race
+    # to instantiate them (the previous lazy globals had this race).
+    from server.routers.publish import init_publishers_from_config
+
+    init_publishers_from_config(app)
 
     metrics_collector = None
     collector_task = None
@@ -107,7 +113,7 @@ async def lifespan(app: FastAPI):
 
     from server.routers.publish import shutdown_publishers
 
-    await shutdown_publishers()
+    await shutdown_publishers(app)
 
     await redis.close()
     app.state.correlation_redis.close()
@@ -123,7 +129,7 @@ def create_app() -> FastAPI:
 
     app.add_middleware(CorrelationMiddleware)
 
-    from mock_engine.config import get_config_manager
+    from havocforge.config import get_config_manager
 
     try:
         server_cfg = get_config_manager().get_root("server")
@@ -136,7 +142,6 @@ def create_app() -> FastAPI:
     if metrics_enabled:
         app.add_middleware(MetricsMiddleware)
 
-    # TODO(config): Make CORS policy configurable via settings.
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["*"],
@@ -159,8 +164,8 @@ def create_app() -> FastAPI:
     if metrics_enabled:
         app.mount(metrics_path, get_metrics_app())
 
-    @app.exception_handler(MockEngineError)
-    async def handle_engine_error(request, exc: MockEngineError):
+    @app.exception_handler(HavocforgeError)
+    async def handle_engine_error(request, exc: HavocforgeError):
         return build_error_response(exc, request)
 
     @app.exception_handler(PoolEmptyError)

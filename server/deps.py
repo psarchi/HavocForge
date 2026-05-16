@@ -8,10 +8,10 @@ from typing import Dict, Tuple
 import yaml
 from fastapi import Request
 
-from mock_engine import api as engine_api
-from mock_engine.schema.builder import build_schema
-from mock_engine.schema.registry import SchemaRegistry
-from mock_engine.schema.errors import SchemaRegistryKeyError
+from havocforge import api as engine_api
+from havocforge.schema.builder import build_schema
+from havocforge.schema.registry import SchemaRegistry
+from havocforge.schema.errors import SchemaRegistryKeyError
 
 _SCHEMAS_DIR = Path("schemas")
 _GENERATOR_CACHE: Dict[str, Tuple[int, object]] = {}
@@ -30,7 +30,7 @@ def _load_schema_from_disk(name: str):
 
 def get_generator(name: str):
     """Return a generator built from the latest registered revision of ``name``."""
-    from mock_engine.chaos.drift import get_drift_coordinator
+    from havocforge.chaos.drift import get_drift_coordinator
 
     coordinator = get_drift_coordinator()
     active_layers = coordinator.active_layers(name)
@@ -78,8 +78,8 @@ def warmup_all(limit: int | None = None) -> int:
 
 
 def get_settings():
-    from mock_engine.config import get_config_manager
-    from mock_engine.config.access import ensure_config_fresh
+    from havocforge.config import get_config_manager
+    from havocforge.config.access import ensure_config_fresh
 
     cm = get_config_manager()
     ensure_config_fresh()

@@ -1,37 +1,142 @@
 # Changelog
 
-## [0.0.2]
+All notable changes to this project are documented here. Format roughly follows
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/); pre-1.0 versions may
+include breaking changes between minor versions.
 
-### Entity correlation (`bound_to` / `linked_to`)
+## [0.1.0] — 2026-05-16
 
-Anchor a field and any number of sibling fields to it — same anchor value always produces the same correlated values, across requests and across time. Backed by Redis.
+Renamed and architecturally hardened from the upstream `mock-data-engine-api`
+codebase. Single big commit covering the rebrand, structural cleanup, bug fixes
+surfaced during the audit, a new demo playground, and a full benchmark report.
 
-- `bound_to: <anchor_field>` on any leaf generator
-- `linked_to` is an alias — identical behavior
-- Anchor field must be declared before the fields that reference it
-- Cross-schema correlation: `bound_to_schema` + optional `bound_to_revision` to pin a specific schema version
-- Correlated values survive restarts — cached until Redis is flushed
+### Added
 
-### CI / code quality
+- **`havocforge` Python package** (was `mock_engine`). `Havocforge` and
+  `HavocforgeError` API symbols (were `MockEngine` / `MockEngineError`).
+- **`server/routers/streaming/` package**, decomposed from a 793-line god file
+  into `handler.py`, `state.py`, `chaos_apply.py`, `live.py`, `profiler.py`.
+  Router re-exported from `__init__.py` so the wiring in `server/app.py` is
+  unchanged.
+- **`init_publishers_from_config()` lifespan hook** so Kafka / Pub/Sub publishers
+  are constructed eagerly on app startup instead of via a racy lazy global. They
+  live on `app.state` and are reachable through FastAPI `Depends`.
+- **`demo/`** — slim public-facing playground:
+  - FastAPI service (`demo/app.py`) exposing `/`, `/api/schemas`, `/api/ops`,
+    `/api/generate` with per-IP rate limiting and a `count<=50` cap
+  - Single-page UI (`demo/static/{index.html,style.css,app.js}`) with the
+    neumorphism palette ported from [archils.dev](https://archils.dev) (light
+    default + dark toggle, DM Sans / Nunito fonts, burnt-orange accent)
+  - `docker-compose.demo.yaml` and `scripts/demo-{up,down}.sh`
+  - `demo/cloudflared/` scaffold (config template + 7-step Cloudflare Tunnel
+    setup walkthrough) for going public at a custom URL
+- **`docs/performance.md`** — full 30-cell single-instance benchmark matrix:
+  worker scaling × batch size, chaos/metrics feature cost, concurrency sweep,
+  WebSocket sustained throughput, schema-complexity comparison, pre-generation
+  worker fill rate. Includes methodology + reproduction commands.
+- **`tests/perf/bench.py`** — single-config bench (REST burst + sweep + WS).
+- **`tests/perf/bench_matrix.py`** — full matrix orchestrator: reconfigures the
+  api container between rows (workers/cpus, chaos via hot-reload, metrics via
+  recreate), runs all benches, saves incrementally so a mid-matrix failure
+  preserves partial data.
+- **`docker-compose.bench.yaml`** — compose override pinning the api container
+  to `cpus: N` + `mem_limit: N×2g` + `WORKERS=N` so the perf numbers are
+  honest single-instance baselines.
 
-- Fixed all lint errors (ruff): unused imports, bare `except`, f-strings without placeholders, module-level imports after `sys.path` manipulation
-- Fixed all mypy errors: corrected `# type: ignore` error codes, added missing annotations across generators, chaos ops, persistence, and server layers
-- Added `httpx` and `websocket-client` to `requirements.txt` (were missing, broke integration test collection)
-- Smoke tests now gracefully skip pool-consumer schemas when Redis is unavailable (`PoolEmptyError` -> `pytest.skip`)
-- Fixed `schema_bloat`: `need = max(8, need)` was a bare expression (result discarded); corrected to assignment
-- Fixed `truncate`: renamed shadowed `desc` variable to `desc_roots` in the root-items branch
+### Fixed
 
-### Referential integrity (`pool` / `depends_on_pool`)
+- **Sync Redis blocking the event loop.** REST and preview generation endpoints
+  now wrap synchronous `gen.generate()` calls in `asyncio.to_thread()`.
+  Previously the sync Redis correlation lookups inside
+  `ObjectGenerator._generate_impl()` could freeze the event loop for hundreds
+  of milliseconds per request, blocking unrelated traffic.
+- **WebSocket dropped the last 4–9 events on `max_events`.** Added a 50 ms
+  drain before `websocket.close()` in the `finally` block — without it the
+  close frame interrupted in-flight `send_text` calls. Verified: `max_events=N`
+  now reliably delivers exactly N events.
+- **Four chaos ops were defined but never registered.** `auth_fault`,
+  `header_anomaly`, `random_header_case` were missing the
+  `@Registry.register(BaseChaosOp)` decorator; `burst` was decorated but
+  unreachable because `havocforge/chaos/ops/network/__init__.py` didn't exist
+  so `pkgutil.walk_packages` couldn't auto-discover it. Decorators added,
+  package init created. All 19 chaos ops now appear in the registry and fire
+  end-to-end via curl.
+- **`time_skew`, `schema_time_skew`, `late_arrival` only fired through the
+  preview endpoint.** `_patch_mgr_for_body_ops` (auto-detects datetime fields
+  + seeds the temporal tracker) was preview-only. Refactored to accept a
+  `schema_name` argument and now called from the regular
+  `/v1/schemas/{name}/generate` route too.
+- **`GET /v1/admin/chaos/test` returned 500 on every call.** Endpoint was
+  calling `ChaosManager.apply()` with stale keyword arguments (`response=`,
+  `meta_enabled=`, `names=`) that the manager no longer accepts. Updated to
+  the current signature (`body=`, `schema_name=`, `forced_activation=`).
+- **Docker compose port mapping broken when `PORT != 8000`.** Old form passed
+  `--port ${PORT:-8000}` to uvicorn while mapping `${PORT:-8000}:8000` —
+  uvicorn listened on the host-side port, the container-side mapping pointed
+  to 8000 with nothing there. Uvicorn now binds the container port
+  unconditionally; the env var only shifts the host-side port.
+- **Two dangerous silent excepts** narrowed to expected error types with
+  `logger.exception(...)` for full tracebacks: the correlation lookup in
+  `havocforge/generators/composites/object.py` (narrowed to
+  `RedisError | json.JSONDecodeError | ValueError`) and
+  `_discover_stateful_fields()` in `havocforge/pregeneration/worker.py`
+  (schema-missing is a warning, anything else logs the exception).
 
-Make foreign keys point to real records. Source schemas push generated IDs (plus any sibling fields) into a Redis SET; downstream schemas sample from that set.
+### Changed
 
-- `pool: [sibling_fields]` on the anchor field of the source schema
-- `depends_on_pool: <schema_name>` on any FK field in a downstream schema
-- Multiple fields referencing the same pool source all read from the same sampled record — one Redis call per pool per generation
-- `PoolEmptyError` → HTTP 422 with a clear message when the source pool hasn't been populated yet
-- `SchemaConfigError` → HTTP 422 when a downstream field references a key not stored in the pool record
-- Admin endpoints: `GET /v1/admin/pools/{schema}`, `DELETE /v1/admin/pools/{schema}`, `DELETE /v1/admin/pools/`
+- Docker network: `mock-engine` → `havocforge`.
+- Container names: `mock-engine-*` → `havocforge-*`.
+- PostgreSQL default DB / user: `mock_engine` / `mock_user` →
+  `havocforge` / `havocforge`.
+- Grafana dashboards renamed + provisioning entry updated.
+- README rewritten around the chaos-engineering value proposition: H1 with
+  category + framework, 7 tech-stack badges, use-cases section, vs-alternatives
+  table (Faker / Mockaroo / polyfactory / Mostly AI), ASCII architecture
+  diagram, categorised chaos-op table, "Performance" highlights linking out
+  to the full matrix. Down from sales copy to engineer-to-engineer prose.
+- `pytest.ini`: added `testpaths = tests` + `norecursedirs = _old_for_deletion
+  .venv .git ...` so quarantined files don't break test collection.
+- `.gitignore`: excludes `_old_for_deletion/` (rebrand quarantine) and
+  `_GITHUB_SETTINGS.md` (personal notes about repo Topics / About).
 
-## [0.0.1]
+### Removed
 
-- Initial public release
+- **Dead `mock_engine/chaos/registry.py`** (87-line singleton, zero imports —
+  fully superseded by the unified registry in `havocforge/registry.py`).
+- **Module-level publisher globals** (`_kafka_publisher` / `_pubsub_publisher`)
+  from `server/routers/publish.py`. Eliminated the lazy-init race window.
+- **Six stale files** surfaced by the rebrand audit (≈ 350 lines of unreferenced
+  code), all moved to `_old_for_deletion/stale_from_rebrand_audit/` for manual
+  review before final deletion:
+  - `server/middleware/chaos_response.py` (empty file)
+  - `server/middleware/meta.py` (1-line placeholder)
+  - `server/middleware/route_pipeline.py` (1-line placeholder)
+  - `server/models.py` (86 lines, zero inbound imports — `admin_generators.py`
+    defines its own `GenerateRequest` locally)
+  - `havocforge/pregeneration/temporal_gen.py` (76-line `TemporalGenerator`
+    class with zero references; superseded by `havocforge/generators/stateful/`)
+  - `tests/test_generators.py` (near-duplicate of `tests/ci/test_generators.py`,
+    3-line trivial diff)
+
+### Known limitations
+
+- `havocforge/generators/composites/object.py` and `havocforge/context.py` are
+  large. Splitting them is on a separate scoped branch — the cross-schema
+  correlation pass has a subtle ordering invariant that's easy to break.
+- ~190 broad `except Exception` blocks remain in the codebase. The two most
+  dangerous (silent correlation failures and silent stateful-field discovery)
+  have been narrowed; the rest are mostly graceful degradation around
+  best-effort writes.
+- `containers/grafana/dashboards/` JSON files have been renamed at the
+  filesystem level but internal panel titles may still show old wording.
+  Cosmetic only — dashboards render correctly.
+
+### Verified
+
+- Full pytest suite collects cleanly (50 unit + ~115 deselected integration).
+- All 49 HTTP endpoints exercised end-to-end via curl sweep (response status,
+  body, headers).
+- All 19 chaos ops fire and produce the documented behaviour
+  (body mutation / status override / latency injection / header anomaly).
+- Full performance matrix run on AMD Ryzen 7 5800X, single-instance, with the
+  numbers checked into `docs/performance.md`.

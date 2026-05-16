@@ -5,7 +5,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
-from mock_engine.context import GenContext
+from havocforge.context import GenContext
 from server.auth import RequireAuth
 from server.deps import get_generator, get_correlation_redis
 

@@ -1,57 +1,123 @@
-# Mock Data Engine API
+# Havocforge — Chaos-injectable synthetic data engine for FastAPI
 
-[![CI](https://github.com/psarchi/mock-data-engine-api/actions/workflows/ci.yml/badge.svg)](https://github.com/psarchi/mock-data-engine-api/actions/workflows/ci.yml)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-yellow.svg)](LICENSE)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11+-3776AB.svg?logo=python&logoColor=white)](https://www.python.org/downloads/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.117-009688.svg?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
+[![Redis](https://img.shields.io/badge/Redis-7-DC382D.svg?logo=redis&logoColor=white)](https://redis.io/)
+[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-4169E1.svg?logo=postgresql&logoColor=white)](https://www.postgresql.org/)
+[![Docker Compose](https://img.shields.io/badge/Docker-Compose-2496ED.svg?logo=docker&logoColor=white)](https://docs.docker.com/compose/)
+[![Tests](https://img.shields.io/badge/tests-45_passing-brightgreen.svg)](#testing)
 
-FastAPI service for generating realistic mock data via declarative YAML schemas. Define data contracts in YAML, generate deterministic or randomized datasets with built-in chaos injection for testing data pipelines, ETL processes, and streaming systems. Includes dual-layer persistence (Redis/PostgreSQL), real-time streaming, and comprehensive observability.
-
-## Status
-
-**Alpha** - API and configuration schemas may change. Not recommended for production use.
-
-## Quick Start
+YAML-defined schemas, 19 chaos operations, WebSocket streaming, dual-layer persistence. Built for stress-testing the things downstream of fake data — ETL jobs, stream consumers, dashboards, alerting rules — under realistic failure conditions.
 
 ```bash
-# Clone and start services
-git clone https://github.com/psarchi/mock-data-engine-api.git
-cd mock-data-engine-api
-make up  # Auto-generates .env from config/*.yaml files
+# Generate 1000 GA4 events with truncation, latency, and schema drift
+curl "http://localhost:8000/v1/schemas/ga4/generate?count=1000&chaos_ops=truncate,latency,schema_drift"
+```
 
-# OR if you have your own .env file:
-# make up WITHOUT_ENV=true
+## Use cases
 
-# Verify health
+- **Stress-test data pipelines** that consume Kafka / Pub/Sub / REST without a real producer.
+- **Populate staging environments** with millions of correlated records (same `customer_id` consistent across `orders`, `payments`, `events`).
+- **Reproduce production incidents** in CI: encoding corruption, late arrivals, partial loads, schema drift across revisions.
+- **Develop dashboards & alerting rules** against streamed events without waiting for real traffic.
+- **Demo data** for SaaS prototypes and customer-facing previews — deterministic seeded output, persistable to retrieve later.
+
+## Havocforge vs alternatives
+
+|                              | **Havocforge**            | Faker          | Mockaroo            | polyfactory         | Mostly AI            |
+| ---------------------------- | ------------------------- | -------------- | ------------------- | ------------------- | -------------------- |
+| Schema definition            | YAML contracts            | Python code    | GUI form            | Pydantic models     | learned from real data |
+| Output                       | REST + WebSocket          | in-process     | CSV/JSON/SQL via UI | in-process          | CSV / Parquet         |
+| Fault injection / chaos      | **19 ops, schema drift**  | —              | —                   | —                   | —                     |
+| Cross-record correlation     | **pools, `bound_to`**     | manual         | limited             | manual              | implicit              |
+| Per-user state (monotonic)   | **yes (Redis-backed)**    | manual         | —                   | manual              | —                     |
+| High-throughput streaming    | **pre-generated queue**   | n/a            | n/a                 | n/a                 | n/a                   |
+| Self-hosted                  | **Docker Compose**        | library        | SaaS only           | library             | both                  |
+| Built-in observability       | **Prometheus + Grafana**  | —              | —                   | —                   | —                     |
+
+Havocforge is the only one of these that ships chaos as a first-class feature, exposes everything over an API, and treats correlation across schemas as a primitive rather than something you bolt on.
+
+## Quickstart
+
+```bash
+git clone https://github.com/<your-username>/havocforge.git
+cd havocforge
+make up      # auto-generates .env from config/default/*.yaml, brings up the stack
+
 curl http://localhost:8000/v1/health
-# {"status":"ok","ts":"2025-12-12T10:30:45.123456Z"}
+# {"status":"ok","ts":"..."}
 ```
 
-**Services:** API (8000), Grafana (3000), Prometheus (9090), Redis (6379), PostgreSQL (5432)
+Stack: API (8000), Grafana (3000), Prometheus (9090), Redis (6379), PostgreSQL (5432).
 
-## First Data Generation
+## Architecture
+
+```
+                     HTTP / WebSocket
+   ┌──────────┐ ─────────────────────▶ ┌────────────────────────────────┐
+   │  Client  │                        │  FastAPI server (uvicorn)      │
+   └──────────┘ ◀───────────────────── │  ┌──────────┐  ┌─────────────┐ │
+                                       │  │ /schemas │  │ /streaming/ │ │
+                                       │  │ /data    │  │   handler   │ │
+                                       │  │ /publish │  │   state     │ │
+                                       │  │ /admin/* │  │   chaos     │ │
+                                       │  └────┬─────┘  └──────┬──────┘ │
+                                       └───────┼───────────────┼────────┘
+                                               ▼               ▼
+                                  ┌──────────────────┐  ┌────────────────┐
+                                  │ Generator        │  │ Chaos manager  │
+                                  │ pipeline (sync,  │◀─│ 19 ops + drift │
+                                  │ via to_thread)   │  │ coordinator    │
+                                  └────────┬─────────┘  └────────────────┘
+                                           │
+                          ┌────────────────┼─────────────────┐
+                          ▼                ▼                 ▼
+                  ┌──────────────┐  ┌────────────┐  ┌──────────────────┐
+                  │   Redis      │  │ PostgreSQL │  │ Kafka / Pub/Sub  │
+                  │ hot cache +  │  │ durable    │  │ batch publishers │
+                  │ pregen queue │  │ datasets   │  │                  │
+                  └──────┬───────┘  └────────────┘  └──────────────────┘
+                         ▲
+                         │ enqueue batches
+                  ┌──────┴────────┐
+                  │ pre-generation│
+                  │ workers (N)   │
+                  └───────────────┘
+```
+
+The pre-generation worker continuously fills a Redis-backed queue per schema. WebSocket streams pop from it for low-latency delivery and fall back to live generation when empty. REST generation goes through the same pipeline but synchronously — wrapped in `asyncio.to_thread()` because the cross-schema correlation lookup uses a sync Redis client (see [Architectural notes](#architectural-notes)).
+
+## API tour
+
+### List schemas
 
 ```bash
-# Generate single item
-curl http://localhost:8000/v1/schemas/stream_events/generate
-
-# Response
-{
-  "event_id": "evt_a3f9b2c1",
-  "event_type": "page_view",
-  "user_id": "user_8472",
-  "timestamp": "2023-06-15T14:32:18Z",
-  "properties": {
-    "page_url": "/products/shoes",
-    "referrer": "https://google.com"
-  }
-}
+curl http://localhost:8000/v1/schemas
+# {"schemas":["ga4","patient","pool_order","pool_user","smoke","smoke_cross_schema","stream_events"],"count":7}
 ```
 
-## Schema Example
+### Generate
 
-Create `schemas/user.yaml`:
+```bash
+# single record
+curl http://localhost:8000/v1/schemas/smoke/generate
+
+# batch of 100
+curl "http://localhost:8000/v1/schemas/smoke/generate?count=100"
+
+# deterministic (same seed = same output for non-stateful fields)
+curl "http://localhost:8000/v1/schemas/smoke/generate?seed=42&count=10"
+
+# persist returns an id you can retrieve later
+ID=$(curl -s "http://localhost:8000/v1/schemas/ga4/generate?count=50" | jq -r .id)
+curl "http://localhost:8000/v1/data/$ID/items"
+```
+
+### Define a schema
 
 ```yaml
+# schemas/user.yaml
 type: object
 fields:
   user_id:
@@ -67,215 +133,164 @@ fields:
   is_active:
     type: bool
     p_true: 0.8
-  registration_date:
-    type: datetime
-    start: "2023-01-01T00:00:00Z"
-    end: "2023-12-31T23:59:59Z"
-    format: "%Y-%m-%dT%H:%M:%SZ"
+  registered_at:
+    type: timestamp
+    start: "2024-01-01T00:00:00Z"
+    end: "2025-12-31T23:59:59Z"
 ```
 
-## Basic API Usage
+`make restart api` and it's live at `/v1/schemas/user/generate`. Bootstrap from a JSON sample with `tools/json_to_schema.py`.
 
-### Generate Data
+### Inject chaos
+
+Force specific ops via `chaos_ops=`:
 
 ```bash
-# Single item
-curl http://localhost:8000/v1/schemas/user/generate
-
-# Batch (100 items)
-curl "http://localhost:8000/v1/schemas/user/generate?count=100"
-
-# Deterministic (with seed)
-curl "http://localhost:8000/v1/schemas/user/generate?seed=42&count=10"
+curl "http://localhost:8000/v1/schemas/smoke/generate?count=10&chaos_ops=schema_field_nulling,latency,truncate&include_metadata=true"
 ```
 
-### Retrieve Persisted Data
+The 19 ops, by category:
 
-```bash
-# Get metadata only
-curl http://localhost:8000/v1/data/{id}
+| Category   | Ops                                                                                              |
+| ---------- | ------------------------------------------------------------------------------------------------ |
+| Body       | `truncate`, `schema_field_nulling`, `schema_bloat`, `duplicate_items`, `list_shuffle`, `late_arrival`, `time_skew`, `schema_time_skew`, `encoding_corrupt`, `partial_load` |
+| Status     | `http_error`, `http_mismatch`, `auth_fault`                                                      |
+| Server     | `latency`                                                                                        |
+| Header     | `header_anomaly`, `random_header_case`                                                           |
+| Network    | `burst` (signals streaming rate-limiter)                                                         |
+| Drift      | `schema_drift`, `data_drift` (via `/v1/schemas/generate-preview`)                                |
 
-# Get full dataset with items
-curl http://localhost:8000/v1/data/{id}/items
-```
+Default behavior is probabilistic — configure rates and budgets in `config/default/chaos.yaml`. See [`docs/chaos.md`](docs/chaos.md) for what each op does.
 
-### List Schemas
-
-```bash
-curl http://localhost:8000/v1/schemas
-```
-
-### Stream Data
-
-```
-ws://localhost:8000/v1/schemas/{schema}/stream
-```
-
-Real-time streaming endpoint. Send JSON params `{"count": 100, "rate": 10}` to control volume and delivery rate (items/sec). Supports chaos injection and deterministic seeding via params.
-
-## Advanced Features (Optional)
-
-<details>
-<summary><b>Available Generators</b></summary>
-
-- **string**: Templates (`"user-{nnnn}"`), Faker providers, regex patterns
-- **int/float**: Range with min/max/step/precision
-- **bool**: Probability-based (`p_true`)
-- **datetime**: Range with format and timezone
-- **enum**: Weighted choices
-- **array**: Variable-length lists
-- **object**: Nested structures
-- **one_of**: Union types
-- **select**: Partial object field selection
-
-</details>
-
-<details>
-<summary><b>Chaos Engineering</b></summary>
-
-Enable chaos via query param: `?chaos=true`
-
-Configure in `config/default/chaos.yaml`:
-
-```yaml
-chaos:
-  enabled: true
-  budgets:
-    max_faults_per_request: 2
-  ops:
-    latency:
-      enabled: true
-      p: 0.1
-      min_ms: 100
-      max_ms: 500
-    schema_field_nulling:
-      enabled: true
-      p: 0.05
-    truncate:
-      enabled: true
-      p: 0.03
-```
-
-**Operations:** latency, http_error, http_mismatch, truncate, schema_field_nulling, schema_bloat, duplicate_items, list_shuffle, late_arrival, time_skew, encoding_corrupt, data_drift, schema_drift, burst, partial_load, schema_time_skew, auth_fault, header_anomaly, random_header_case
-
-</details>
-
-<details>
-<summary><b>WebSocket Streaming</b></summary>
+### Stream
 
 ```python
-import asyncio
-import websockets
-import json
+import asyncio, json, websockets
 
 async def stream():
-    uri = "ws://localhost:8000/v1/schemas/user/stream"
+    uri = "ws://localhost:8000/v1/schemas/user/stream?count=100&max_events=1000"
     async with websockets.connect(uri) as ws:
-        params = {"count": 100, "rate": 10}  # 10 items/sec
-        await ws.send(json.dumps(params))
-
-        async for message in ws:
-            data = json.loads(message)
-            print(data)
+        async for msg in ws:
+            event = json.loads(msg)
+            if event.get("type") == "event":
+                print(event["seq"], event["data"])
 
 asyncio.run(stream())
 ```
 
-</details>
+Resume per-user state across reconnects with `?user_id=<id>`. Force chaos per-stream with `?forced_chaos=truncate,encoding_corrupt`.
 
-<details>
-<summary><b>Persistence</b></summary>
+## Tech stack
 
-Dual-layer storage:
-- **Redis**: Hot cache (24h TTL, 10GB max)
-- **PostgreSQL**: Durable storage (30-day retention)
+`Python 3.11` · `FastAPI` · `uvicorn` · `Pydantic v2` · `asyncio` · `WebSockets` ·
+`Redis 7` (hot cache + pregen queue) · `PostgreSQL 16` (durable storage) ·
+`asyncpg` · `aiokafka` · `google-cloud-pubsub` ·
+`Faker` · `exrex` · `orjson` · `uvloop` ·
+`Prometheus` (metrics) · `Grafana` (dashboards) · `structlog` ·
+`Docker Compose` · `pytest` · `ruff` · `mypy`
 
-Datasets auto-persist by default. Disable per-request:
+## Performance
 
-```bash
-curl "http://localhost:8000/v1/schemas/user/generate?persist=false"
-```
+Single-instance benchmark on AMD Ryzen 7 5800X (≈ 2× a typical cloud vCPU,
+so budget VPS will see 40–60 % of these). Headline numbers below; **full
+30-cell matrix with latency p50/p95/p99, worker scaling, chaos / Prometheus
+cost, schema complexity, and pre-generation worker throughput in
+[`docs/performance.md`](docs/performance.md)** plus reproduction commands.
 
-</details>
+| What                                                         | items/sec     |
+| ------------------------------------------------------------ | ------------- |
+| REST burst, `WORKERS=8`, batch=10, c=50, smoke               | **7,278**     |
+| REST single big request, `count=1000`, smoke                 | 4,190         |
+| WebSocket sustained, one connection, from pre-gen queue      | 3,601         |
+| Pre-generation worker, combined smoke + ga4, single CPU      | 1,403         |
+| Schema with 8 `bound_to` fields (`patient`)                  | 757           |
 
-<details>
-<summary><b>Pre-Generation</b></summary>
+Three things worth knowing without reading the full report:
 
-Background workers pre-generate data for high-throughput scenarios. Configure in `config/default/generation.yaml`:
+- **REST throughput scales near-linearly to `WORKERS=4`**, then drops to ~30 % gain at 8 (GIL pressure on the generator path).
+- **Prometheus metrics middleware halves single-core throughput** (887 → 417 items/sec). For load-sensitive deployments, scrape `/metrics` from a sidecar and disable the per-request middleware.
+- **`bound_to` correlation costs you** — one sync Redis GET per bound field per record. The `patient` schema hits 757 items/sec instead of ~5,000 because every field is `bound_to: patient_id`. Trade-off for "same id always gets the same name."
 
-```yaml
-pregeneration:
-  schemas: [ga4, smoke]  # Schemas to pre-generate
-  workers: 4             # Parallel workers
-  target_count: 10000    # Items per schema
-```
+Reproduce with `python3 tests/perf/bench_matrix.py` after `docker compose -f docker-compose.yaml -f docker-compose.bench.yaml up -d`. Full instructions in [`docs/performance.md`](docs/performance.md#reproduce-these-numbers).
 
-Worker starts automatically with `make up`. Streaming endpoints automatically consume pre-generated data when available, achieving 20k+ items/sec.
+## Architectural notes
 
-</details>
+A few non-obvious things worth knowing if you're hacking on this:
 
-<details>
-<summary><b>Observability</b></summary>
-
-- **Metrics**: http://localhost:8000/metrics (Prometheus format)
-- **Dashboards**: http://localhost:3000 (Grafana, admin/admin)
-- **Logs**: Structured JSON output (configurable in `config/default/server.yaml`)
-
-</details>
+- **Generation is sync, called from async handlers.** `server/routers/schemas.py` and the streaming live-fallback path off-load generation via `asyncio.to_thread()` because the cross-schema correlation lookup uses a sync Redis client (the lookup runs *inside* `havocforge/generators/composites/object.py` where async is impractical). Don't replace `to_thread` with a direct call — it'll freeze the event loop.
+- **Publishers are constructed at lifespan start, not per-request.** Kafka / Pub/Sub publisher objects live on `app.state` and are built in `init_publishers_from_config()`. The previous module-level lazy-init had a race between concurrent first-requests; do not reintroduce it.
+- **Streaming endpoint is a package, not a file.** `server/routers/streaming/` decomposes a previously-793-line god file into `handler.py` (WebSocket lifecycle), `state.py` (per-user state), `chaos_apply.py`, `live.py`, `profiler.py`. Router re-exported from `__init__.py`.
+- **Config is YAML-only.** `ConfigManager.get_value()` reads from `config/default/*.yaml`. The `.env` file is for docker-compose port/URL injection, *not* for app behavioral config.
+- **Drift ops use a separate coordinator.** `schema_drift` and `data_drift` mutate the registered schema across revisions instead of mutating output items; they're invoked through `/v1/schemas/generate-preview` which has the special handling.
 
 ## Configuration
 
-Configuration files in `config/default/*.yaml`:
+YAML in `config/default/`. Override by creating `config/<file>.yaml` (gitignored).
 
-- `server.yaml` - API server, persistence, observability, profiler
-- `generation.yaml` - Generator defaults, RNG, temporal modes, pre-generation
-- `chaos.yaml` - Chaos operations and budgets
+| File              | Purpose                                                                  |
+| ----------------- | ------------------------------------------------------------------------ |
+| `server.yaml`     | API server, persistence, observability, streaming, profiler, security    |
+| `generation.yaml` | RNG, generator defaults, pre-generation worker                           |
+| `chaos.yaml`      | Chaos op enable/probability/budgets                                      |
 
-Override defaults by creating `config/*.yaml` files (gitignored).
+## Testing
+
+```bash
+make test                   # full pytest suite (45 unit tests, ~6 skipped)
+make test ARGS='-m integration'   # integration suite — requires running stack
+```
+
+End-to-end smoke verified by curl-sweeping all 49 HTTP endpoints + 19 chaos ops via `tests/smoke/curl_sweep.sh` — see `CHANGELOG.md` for the full list of bugs surfaced and fixed during validation.
+
+## Repository layout
+
+```
+havocforge/
+├── havocforge/          # Core engine
+│   ├── chaos/           # 19 chaos ops + drift coordinators
+│   ├── contracts/       # Typed schema specifications (Pydantic)
+│   ├── generators/      # Leaf, composite, and stateful generators
+│   ├── persistence/     # Redis + PostgreSQL clients, batch sync, metrics collector
+│   ├── pregeneration/   # Background pre-gen worker
+│   ├── schema/          # YAML loader, validator, registry
+│   └── observability/   # Prometheus instrumentation
+├── server/              # FastAPI application
+│   ├── routers/         # /v1 endpoints (schemas, data, streaming/, publish, admin/*, users)
+│   ├── middleware/      # Correlation IDs, metrics, chaos response
+│   └── publishers/      # Kafka + Pub/Sub adapters
+├── schemas/             # YAML data contracts (ships with smoke + ga4 + a few examples)
+├── config/default/      # server.yaml / generation.yaml / chaos.yaml
+├── containers/          # Per-service Dockerfiles + Grafana / Prometheus configs
+├── migrations/          # PostgreSQL schema migrations
+├── tools/               # json_to_schema converter
+├── scripts/             # Misc CLI helpers (env generation)
+├── tests/               # Unit + integration tests
+└── docs/                # API / chaos / configuration / quickstart reference
+```
 
 ## Tools
 
-### JSON to YAML Schema Converter
+### `tools/json_to_schema.py`
 
-Bootstrap schemas from JSON examples:
+Bootstrap a YAML schema from a JSON sample:
 
 ```bash
-# Single object
 curl https://api.example.com/user | python tools/json_to_schema.py > schemas/user.yaml
-
-# Array of samples (infer ranges)
 python tools/json_to_schema.py examples.json --infer-arrays --sample-size 100
-
-# From file
-python tools/json_to_schema.py example.json -o schemas/user.yaml
 ```
 
-The tool automatically detects types (int, float, bool, string patterns), email/URL formats, and merges multiple samples to infer realistic min/max ranges. See [tools/README.md](tools/README.md) for details.
+See [`tools/README.md`](tools/README.md) for the type-detection rules.
 
-## Repository Layout
+## Known limitations
 
-```
-mock-data-engine-api/
-├── mock_engine/          # Core engine
-│   ├── generators/       # Data generators
-│   ├── chaos/           # Chaos operations
-│   ├── persistence/     # Redis/PostgreSQL clients
-│   ├── pregeneration/   # Background workers
-│   └── schema/          # Schema builder and validation
-├── server/              # FastAPI application
-│   └── routers/         # API endpoints
-├── schemas/             # YAML data contracts
-├── config/              # Configuration files
-│   └── default/         # Default configs
-├── tools/               # Developer tools (json_to_schema)
-├── containers/          # Docker service configs
-├── tests/               # Test suites
-└── docker-compose.yaml  # Full stack deployment
-```
+- `havocforge/generators/composites/object.py` and `havocforge/context.py` are large. Splitting them is on a separate scoped branch — the cross-schema correlation pass has a subtle ordering invariant that's easy to break.
+- ~190 broad `except Exception` blocks remain. The two most dangerous (silent correlation failures and silent stateful-field discovery) have been narrowed and now log with full tracebacks; the rest are mostly graceful degradation around best-effort writes.
+- `containers/grafana/dashboards/` ships with two dashboards renamed from the upstream project; field labels inside the JSON may still show the old wording. They render correctly; the rename is cosmetic.
 
-## License & Disclaimer
+## Status
 
-This project is licensed under the MIT License. See the LICENSE file for details.
+Pre-1.0. Public APIs may change between minor versions. Suitable for development, testing, and CI; not for production traffic.
 
-All generated data is entirely synthetic and intended for development and testing purposes only.  
-The software is provided "as is", without warranty of any kind. Users are responsible for compliance with applicable laws and regulations.
+## License
+
+MIT — see [LICENSE](LICENSE). All generated data is synthetic and intended for development and testing purposes only.

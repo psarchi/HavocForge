@@ -4,10 +4,10 @@ import pytest
 from pathlib import Path
 import yaml
 
-from mock_engine.registry import Registry
-from mock_engine.generators.base import BaseGenerator
-from mock_engine.chaos.ops.base import BaseChaosOp
-from mock_engine.config import get_config_manager
+from havocforge.registry import Registry
+from havocforge.generators.base import BaseGenerator
+from havocforge.chaos.ops.base import BaseChaosOp
+from havocforge.config import get_config_manager
 
 
 @pytest.mark.ci

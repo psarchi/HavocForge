@@ -1,14 +1,14 @@
 .PHONY: help env up down logs restart ps shell test rebuild clean clean-all clean-data fmt lint lint-fix health db-shell redis-cli full-reset reset
 
-COMPOSE ?= docker-compose
-ENV_FILE ?= .env
-CONFIG ?= config/default/server.yaml
-ENV_SCRIPT ?= scripts/gen_env.py
-PY ?= python
-PROJECT_NAME ?= $(if $(COMPOSE_PROJECT_NAME),$(COMPOSE_PROJECT_NAME),$(notdir $(CURDIR)))
-NETWORK ?= $(PROJECT_NAME)_mock-engine
-SERVICES ?=
-WITHOUT_ENV ?= false
+COMPOSE       ?= docker compose
+ENV_FILE      ?= .env
+CONFIG        ?= config/default/server.yaml
+ENV_SCRIPT    ?= scripts/gen_env.py
+PY            ?= python
+PROJECT_NAME  ?= $(if $(COMPOSE_PROJECT_NAME),$(COMPOSE_PROJECT_NAME),$(notdir $(CURDIR)))
+NETWORK       ?= $(PROJECT_NAME)_havocforge
+SERVICES      ?=
+WITHOUT_ENV   ?= false
 EXTRA_GOALS := $(filter-out logs fmt lint lint-fix restart,$(MAKECMDGOALS))
 
 ifeq ($(strip $(EXTRA_GOALS)),)
@@ -22,9 +22,9 @@ endif
 help:
 	@echo "make env                      - generate .env from $(CONFIG)"
 	@echo "make up [SERVICES=...]        - start services (auto-generates .env)"
-	@echo "make up WITHOUT_ENV=true      - start services (use existing .env)"
+	@echo "make up WITHOUT_ENV=true      - start services using existing .env"
 	@echo "make down                     - stop all services"
-	@echo "make restart [SERVICE]        - restart service (e.g., make restart api)"
+	@echo "make restart [SERVICE]        - restart a service (e.g. make restart api)"
 	@echo "make logs [SERVICES]          - follow logs"
 	@echo "make ps                       - list containers"
 	@echo "make shell [SERVICE=api]      - shell into a service"
@@ -85,7 +85,6 @@ reset:
 	@$(MAKE) env
 	@$(MAKE) up
 
-
 clean:
 	$(COMPOSE) down -v --remove-orphans || true
 	@docker ps -aq --filter "network=$(NETWORK)" | xargs -r docker rm -f
@@ -95,7 +94,7 @@ clean-all: clean-data
 	docker system prune -f
 
 clean-data: clean
-	docker volume rm mock-data-engine-api_pgdata mock-data-engine-api_redisdata 2>/dev/null || true
+	docker volume rm $(PROJECT_NAME)_pgdata $(PROJECT_NAME)_redisdata 2>/dev/null || true
 
 fmt:
 	$(COMPOSE) exec -T api ruff format .
@@ -108,7 +107,7 @@ lint-fix:
 
 health:
 	@echo "=== API Health ==="
-	@curl -s http://localhost:8000/health || echo "API not responding"
+	@curl -s http://localhost:8000/v1/health || echo "API not responding"
 	@echo "\n=== Prometheus Health ==="
 	@curl -s http://localhost:9090/-/healthy || echo "Prometheus not responding"
 	@echo "\n=== Grafana Health ==="
@@ -116,9 +115,8 @@ health:
 
 db-shell:
 	@USER=$$(grep -E '^PERSISTENCE_POSTGRES_USER=' $(ENV_FILE) | cut -d'=' -f2); \
-	PASS=$$(grep -E '^PERSISTENCE_POSTGRES_PASSWORD=' $(ENV_FILE) | cut -d'=' -f2); \
 	DB=$$(grep -E '^PERSISTENCE_POSTGRES_DB=' $(ENV_FILE) | cut -d'=' -f2); \
-	USER=$${USER:-mock_user}; PASS=$${PASS:-mock_pass}; DB=$${DB:-mock_engine}; \
+	USER=$${USER:-havocforge}; DB=$${DB:-havocforge}; \
 	$(COMPOSE) exec postgres psql -U $$USER -d $$DB
 
 redis-cli:

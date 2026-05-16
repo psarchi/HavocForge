@@ -6,9 +6,9 @@ from typing import Any
 
 from fastapi import APIRouter, Body, HTTPException
 
-from mock_engine.config import get_config_manager
-from mock_engine.config.access import reload_config
-from mock_engine.config.constants import DEFAULT_CONFIG_DIR
+from havocforge.config import get_config_manager
+from havocforge.config.access import reload_config
+from havocforge.config.constants import DEFAULT_CONFIG_DIR
 from server.auth import RequireAuth
 
 CONFIG_DIR = DEFAULT_CONFIG_DIR

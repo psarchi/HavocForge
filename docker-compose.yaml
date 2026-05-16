@@ -1,13 +1,13 @@
-version: '3.8'
-
 services:
   api:
     build:
       context: .
       dockerfile: containers/api/Dockerfile
-    container_name: mock-engine-api
+    container_name: havocforge-api
     env_file:
       - .env
+    # Host-side port is configurable via PORT; the container always listens
+    # on 8000 internally so the mapping stays consistent.
     ports:
       - "${PORT:-8000}:8000"
     volumes:
@@ -18,18 +18,18 @@ services:
     command: >
       sh -c "mkdir -p /tmp/prom-mp &&
       rm -rf /tmp/prom-mp/* &&
-      uvicorn server.app:app --host 0.0.0.0 --port ${PORT:-8000} --workers ${WORKERS:-8}"
+      uvicorn server.app:app --host 0.0.0.0 --port 8000 --workers ${WORKERS:-8}"
     environment:
       - PYTHONUNBUFFERED=1
       - PYTHONDONTWRITEBYTECODE=1
       - PROMETHEUS_MULTIPROC_DIR=/tmp/prom-mp
       - PROFILE_OUTPUT_DIR=/app/data/profile
       - REDIS_URL=${PERSISTENCE_REDIS_URL:-redis://redis:6379}
-      - DATABASE_URL=${PERSISTENCE_POSTGRES_URL:-postgresql://mock_user:mock_pass@postgres:5432/mock_engine}
+      - DATABASE_URL=${PERSISTENCE_POSTGRES_URL:-postgresql://havocforge:havocforge@postgres:5432/havocforge}
     tmpfs:
       - /tmp/prom-mp
     networks:
-      - mock-engine
+      - havocforge
     depends_on:
       - redis
     restart: unless-stopped
@@ -38,7 +38,7 @@ services:
     build:
       context: .
       dockerfile: containers/api/Dockerfile
-    container_name: mock-engine-generation-worker
+    container_name: havocforge-generation-worker
     env_file:
       - .env
     ports:
@@ -50,7 +50,7 @@ services:
     command: >
       sh -c "mkdir -p /tmp/prom-mp &&
       rm -rf /tmp/prom-mp/* &&
-      python -m mock_engine.pregeneration.worker"
+      python -m havocforge.pregeneration.worker"
     environment:
       - PYTHONUNBUFFERED=1
       - PYTHONDONTWRITEBYTECODE=1
@@ -63,7 +63,7 @@ services:
     tmpfs:
       - /tmp/prom-mp
     networks:
-      - mock-engine
+      - havocforge
     depends_on:
       - redis
     restart: unless-stopped
@@ -72,10 +72,11 @@ services:
     build:
       context: containers/prometheus
       dockerfile: Dockerfile
+    container_name: havocforge-prometheus
     ports:
       - "${OBSERVABILITY_PROMETHEUS_PORT:-9090}:9090"
     networks:
-      - mock-engine
+      - havocforge
     depends_on:
       - api
 
@@ -83,24 +84,28 @@ services:
     build:
       context: containers/grafana
       dockerfile: Dockerfile
+    container_name: havocforge-grafana
     ports:
       - "${OBSERVABILITY_GRAFANA_PORT:-3000}:3000"
     volumes:
       - ./containers/grafana/dashboards:/var/lib/grafana/dashboards:ro
     networks:
-      - mock-engine
+      - havocforge
     depends_on:
       - prometheus
     environment:
       - GF_SECURITY_ADMIN_USER=${OBSERVABILITY_GRAFANA_ADMIN_USER:-admin}
       - GF_SECURITY_ADMIN_PASSWORD=${OBSERVABILITY_GRAFANA_ADMIN_PASSWORD:-admin}
       - GF_USERS_ALLOW_SIGN_UP=${OBSERVABILITY_GRAFANA_ALLOW_SIGN_UP:-false}
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Viewer
+      - GF_SECURITY_ALLOW_EMBEDDING=true
 
   redis:
     build:
       context: containers/redis
       dockerfile: Dockerfile
-    container_name: mock-engine-redis
+    container_name: havocforge-redis
     env_file:
       - .env
     ports:
@@ -111,53 +116,31 @@ services:
       - REDIS_MAXMEMORY=${PERSISTENCE_REDIS_MAXMEMORY:-10gb}
       - REDIS_MAXMEMORY_POLICY=${PERSISTENCE_REDIS_MAXMEMORY_POLICY:-allkeys-lru}
     networks:
-      - mock-engine
+      - havocforge
     restart: unless-stopped
 
   postgres:
     build:
       context: .
       dockerfile: containers/postgres/Dockerfile
-    container_name: mock-engine-postgres
+    container_name: havocforge-postgres
     ports:
       - "${PERSISTENCE_POSTGRES_PORT:-5432}:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     environment:
-      POSTGRES_DB: ${PERSISTENCE_POSTGRES_DB:-mock_engine}
-      POSTGRES_USER: ${PERSISTENCE_POSTGRES_USER:-mock_user}
-      POSTGRES_PASSWORD: ${PERSISTENCE_POSTGRES_PASSWORD:-mock_pass}
+      POSTGRES_DB: ${PERSISTENCE_POSTGRES_DB:-havocforge}
+      POSTGRES_USER: ${PERSISTENCE_POSTGRES_USER:-havocforge}
+      POSTGRES_PASSWORD: ${PERSISTENCE_POSTGRES_PASSWORD:-havocforge}
     networks:
-      - mock-engine
+      - havocforge
     restart: unless-stopped
-
-  # watcher:
-  #   build:
-  #     context: .
-  #     dockerfile: containers/app/Dockerfile
-  #   container_name: mock-engine-watcher
-  #   command: python -m mock_engine.persistence.watcher
-  #   ports:
-  #     - "8002:8002"
-  #   depends_on:
-  #     - redis
-  #     - postgres
-  #   environment:
-  #     - REDIS_URL=redis://redis:6379
-  #     - DATABASE_URL=postgresql://mock_user:mock_pass@postgres:5432/mock_engine
-  #     - METRICS_PORT=8002
-  #   networks:
-  #     - mock-engine
-  #   restart: unless-stopped
-  #   volumes:
-  #     - .:/app
-  #   working_dir: /app
 
   batch_sync:
     build:
       context: .
       dockerfile: containers/batch_sync/Dockerfile
-    container_name: mock-engine-batch-sync
+    container_name: havocforge-batch-sync
     env_file:
       - .env
     ports:
@@ -166,14 +149,14 @@ services:
       - redis
       - postgres
     networks:
-      - mock-engine
+      - havocforge
     restart: unless-stopped
     volumes:
       - .:/app
     working_dir: /app
     environment:
       - REDIS_URL=${PERSISTENCE_REDIS_URL:-redis://redis:6379}
-      - DATABASE_URL=${PERSISTENCE_POSTGRES_URL:-postgresql://mock_user:mock_pass@postgres:5432/mock_engine}
+      - DATABASE_URL=${PERSISTENCE_POSTGRES_URL:-postgresql://havocforge:havocforge@postgres:5432/havocforge}
       - SYNC_INTERVAL=${PERSISTENCE_BATCH_SYNC_INTERVAL_SECONDS:-3}
       - METRICS_PORT=${PERSISTENCE_BATCH_SYNC_METRICS_PORT:-8001}
       - PYTHONDONTWRITEBYTECODE=1
@@ -182,7 +165,7 @@ services:
     build:
       context: .
       dockerfile: containers/metrics_collector/Dockerfile
-    container_name: mock-engine-metrics-collector
+    container_name: havocforge-metrics-collector
     env_file:
       - .env
     ports:
@@ -191,20 +174,20 @@ services:
       - redis
       - postgres
     networks:
-      - mock-engine
+      - havocforge
     restart: unless-stopped
     volumes:
       - .:/app
     working_dir: /app
     environment:
       - REDIS_URL=${PERSISTENCE_REDIS_URL:-redis://redis:6379}
-      - DATABASE_URL=${PERSISTENCE_POSTGRES_URL:-postgresql://mock_user:mock_pass@postgres:5432/mock_engine}
+      - DATABASE_URL=${PERSISTENCE_POSTGRES_URL:-postgresql://havocforge:havocforge@postgres:5432/havocforge}
       - METRICS_PORT=${PERSISTENCE_METRICS_COLLECTOR_METRICS_PORT:-8003}
       - INTERVAL_SECONDS=${PERSISTENCE_METRICS_COLLECTOR_INTERVAL_SECONDS:-30}
       - PYTHONDONTWRITEBYTECODE=1
 
 networks:
-  mock-engine:
+  havocforge:
     driver: bridge
 
 volumes:

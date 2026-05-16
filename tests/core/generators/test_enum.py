@@ -13,8 +13,8 @@ def test_enum_generator(
         Tuple of (passed: bool, data: dict)
     """
     try:
-        from mock_engine.context import GenContext
-        from mock_engine.generators.leafs.enum import EnumGenerator
+        from havocforge.context import GenContext
+        from havocforge.generators.leafs.enum import EnumGenerator
 
         gen = EnumGenerator(values=["x", "y"], weights=[1, 100])
         ctx = GenContext(seed=seed)

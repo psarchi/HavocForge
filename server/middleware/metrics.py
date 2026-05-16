@@ -6,7 +6,7 @@ from typing import Callable
 from fastapi import Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from mock_engine.observability import (
+from havocforge.observability import (
     http_requests_total,
     http_request_duration_seconds,
     http_request_size_bytes,

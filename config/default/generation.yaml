@@ -28,7 +28,7 @@ pregeneration:
   type: group
   enabled:
     type: bool
-    value: true
+    value: false
     description: "Enable consuming pre-generated items from Redis."
 
   fallback_to_live:

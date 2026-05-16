@@ -1,6 +1,6 @@
 import asyncio
-from mock_engine.config import get_config_manager
-from mock_engine.observability import config_enabled
+from havocforge.config import get_config_manager
+from havocforge.observability import config_enabled
 
 # TODO: planned couldn't make it work
 async def export_config_metrics():

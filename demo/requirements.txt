@@ -1,0 +1,22 @@
+# Slim deps for the demo image. No persistence, no publishers.
+# The havocforge engine is mounted from the repo root, not pip-installed.
+
+fastapi==0.117.1
+uvicorn==0.38.0
+pydantic==2.5.3
+orjson==3.11.4
+pyyaml==6.0.1
+faker==38.0.0
+exrex==0.12.0
+structlog==25.5.0
+nanoid==2.0.0
+# Required by havocforge.observability — the engine instruments generators
+# at import time, so this needs to be present even though the demo doesn't
+# expose a /metrics endpoint.
+prometheus-client==0.23.1
+
+# Required by havocforge.generators.composites.object — imports
+# redis.exceptions.RedisError at module-load time for the cross-schema
+# correlation lookup. The demo never connects to Redis; we just need the
+# client library installed so the import resolves.
+redis==7.1.0

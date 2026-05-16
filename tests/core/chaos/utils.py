@@ -112,8 +112,8 @@ def has_corrupted_encoding(data: Any) -> bool:
 
 def get_all_registered_chaos_ops() -> list[str]:
     """Get all registered chaos operation keys."""
-    from mock_engine.registry import Registry
-    from mock_engine.chaos.ops.base import BaseChaosOp
+    from havocforge.registry import Registry
+    from havocforge.chaos.ops.base import BaseChaosOp
 
     all_ops = Registry.get_all(BaseChaosOp)
     return sorted(all_ops.keys())

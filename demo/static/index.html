@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Havocforge — chaos-injectable synthetic data engine</title>
+  <meta name="description" content="Pick a schema, toggle chaos ops, see clean vs corrupted output side by side. Live demo of Havocforge — a chaos-injectable synthetic data engine for FastAPI." />
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+
+  <nav>
+    <a href="#" class="nav-logo">havocforge<span>.demo</span></a>
+    <div class="nav-right">
+      <a class="nav-link" href="https://github.com/" target="_blank" rel="noopener" id="repo-link">GitHub ↗</a>
+      <a class="nav-link" href="https://archils.dev" target="_blank" rel="noopener">archils.dev ↗</a>
+      <button class="theme-toggle" id="theme-toggle" type="button" aria-label="Toggle theme">light</button>
+    </div>
+  </nav>
+
+  <!-- ── HERO ───────────────────────────────────────────────────────────── -->
+  <header class="hero">
+    <div class="hero-tag">chaos-injectable synthetic data engine</div>
+    <h1 class="hero-name">
+      havocforge<span class="dot">.</span><span class="light">demo</span>
+    </h1>
+    <p class="hero-concrete">
+      Pick a schema, toggle one or more of the <span>19 chaos operations</span>, and see
+      clean output and chaos-corrupted output rendered side&#8209;by&#8209;side with the
+      changed fields highlighted.
+    </p>
+    <p class="hero-summary">
+      Built for stress-testing the things downstream of fake data — ETL jobs, stream
+      consumers, dashboards, alerting rules — under realistic failure conditions.
+      Self-hosted via Docker Compose. Source on GitHub.
+    </p>
+  </header>
+
+  <!-- ── READER SECTIONS ────────────────────────────────────────────────── -->
+  <div class="reader-wrap">
+
+    <!-- ── 01: Try it ──────────────────────────────────────────────────── -->
+    <section class="reader-section" id="try">
+      <div class="section-heading">
+        <span class="num">01 — Try it</span>
+        <h2>The playground</h2>
+      </div>
+
+      <div class="card">
+        <div class="controls-grid">
+          <div class="field">
+            <label class="field-label" for="schema-select">Schema</label>
+            <select id="schema-select" class="input" aria-label="Schema"></select>
+          </div>
+          <div class="field">
+            <label class="field-label" for="count-range">
+              Count <span class="count-out" id="count-output">10</span>
+            </label>
+            <input id="count-range" class="input" type="range" min="1" max="50" value="10" />
+          </div>
+          <div class="field">
+            <label class="field-label" for="seed-input">Seed <span class="muted">(optional)</span></label>
+            <input id="seed-input" class="input" type="number" placeholder="random" />
+          </div>
+        </div>
+
+        <div class="ops-grid" id="ops-grid"><!-- filled by app.js --></div>
+
+        <div class="cta-row">
+          <button id="generate-btn" type="button" class="btn btn-primary">Generate →</button>
+          <button id="copy-curl-btn" type="button" class="btn btn-ghost">Copy as curl ↗</button>
+          <button id="copy-json-btn" type="button" class="btn btn-ghost">Copy JSON ↗</button>
+          <span id="status-pills" class="status-pills" aria-live="polite"></span>
+        </div>
+
+        <div class="comparison" id="comparison" hidden>
+          <div class="pane">
+            <div class="pane-label">Clean</div>
+            <pre id="clean-out" class="json-out" aria-label="Clean output"></pre>
+          </div>
+          <div class="pane">
+            <div class="pane-label chaos">With chaos</div>
+            <pre id="chaos-out" class="json-out" aria-label="Chaos output"></pre>
+          </div>
+        </div>
+
+        <details id="response-details" class="response-details" hidden>
+          <summary>Response details</summary>
+          <div class="details-grid">
+            <div>
+              <h4>Chaos applied</h4>
+              <ul id="chaos-applied" class="chaos-applied"></ul>
+            </div>
+            <div>
+              <h4>Response headers</h4>
+              <pre id="response-headers" class="json-out small"></pre>
+            </div>
+          </div>
+        </details>
+      </div>
+    </section>
+
+    <!-- ── 02: Explainer ───────────────────────────────────────────────── -->
+    <section class="reader-section" id="explainer-section">
+      <div class="section-heading">
+        <span class="num">02 — What just happened</span>
+        <h2>The diff, in plain English</h2>
+      </div>
+      <p id="explainer" class="explainer muted">
+        Pick a schema, select at least one chaos op, and click <em>Generate</em>. The same seeded run
+        is executed twice — once with no chaos, once with the ops you selected — so non-chaos fields
+        stay identical and only the corrupted fields differ.
+      </p>
+    </section>
+
+    <!-- ── 03: API ─────────────────────────────────────────────────────── -->
+    <section class="reader-section" id="api">
+      <div class="section-heading">
+        <span class="num">03 — Use the API</span>
+        <h2>It's just curl</h2>
+      </div>
+      <p class="explainer" style="margin-bottom: 18px;">
+        Every interaction on this page is one HTTP call. The full deployment also ships WebSocket
+        streaming, Redis + Postgres persistence, Kafka / Pub/Sub publishing, and Prometheus metrics.
+      </p>
+      <pre id="curl-preview" class="api-curl">$ curl "/api/generate?schema=smoke&amp;count=10"</pre>
+      <p class="explainer muted" style="margin-top: 14px;">
+        Three ops in this demo are full-deployment-only:
+        <code>burst</code> (WebSocket streaming),
+        <code>schema_drift</code> and <code>data_drift</code> (need Redis-backed state).
+      </p>
+    </section>
+
+  </div>
+
+  <footer class="footer">
+    <span>MIT licensed.</span>
+    <span>Generated data is synthetic and intended for development &amp; testing.</span>
+    <span style="margin-left: auto;">A sister site to <a href="https://archils.dev">archils.dev</a></span>
+  </footer>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

@@ -6,8 +6,8 @@ from typing import Any
 import yaml
 from fastapi import APIRouter, Body, HTTPException
 
-from mock_engine.schema.builder import build_schema
-from mock_engine.schema.registry import SchemaRegistry
+from havocforge.schema.builder import build_schema
+from havocforge.schema.registry import SchemaRegistry
 from server.auth import RequireAuth
 
 router = APIRouter(prefix="/v1/admin/schemas", tags=["admin-schemas"])

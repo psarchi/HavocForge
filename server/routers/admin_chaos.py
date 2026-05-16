@@ -6,9 +6,9 @@ from fastapi import APIRouter, Response
 
 from starlette.responses import JSONResponse
 
-from mock_engine.chaos.access import get_chaos_manager
-from mock_engine.config.access import get_config_manager
-from mock_engine.context import GenContext
+from havocforge.chaos.access import get_chaos_manager
+from havocforge.config.access import get_config_manager
+from havocforge.context import GenContext
 from server.deps import get_generator
 from server.auth import RequireAuth
 
@@ -56,30 +56,38 @@ def wrap_output(body, status: int, headers: dict | None = None):
 
 @router.get("/test")
 def chaos_test(_token: RequireAuth = None):
-    list_of_ops = ["duplicate_items"]
-    items = []
+    """Generate one record from the ga4 schema and force ``duplicate_items``.
+
+    Sanity-check endpoint for the chaos pipeline. Returns the post-chaos body
+    so you can confirm the requested op fired.
+    """
     name = "ga4"
+    forced_ops = ["duplicate_items"]
+
     gen = get_generator(name)
     ctx = GenContext()
-    for _ in range(1):
-        rec = gen.generate(ctx)
-        items.append(rec)
-    payload = {"body": {"items": items, "count": len(items)}}
-    _ = get_config_manager().get_root("chaos")
+    items = [gen.generate(ctx)]
+    payload = {"items": items, "count": len(items)}
 
     mgr = get_chaos_manager(ctx)
-    out_resp, _meta = mgr.apply(response=payload, meta_enabled=False, names=list_of_ops)  # type: ignore[call-arg]
-    body = out_resp.get("body")  # type: ignore[attr-defined]
-    out_resp.get("headers") or {  # type: ignore[attr-defined]
-        "Content-Type": "application/json; charset=utf-8"
-    }
-    return JSONResponse(content=body, status_code=200)
+    result, _resp_meta = mgr.apply(
+        body=payload, schema_name=name, forced_activation=forced_ops
+    )
+
+    return JSONResponse(
+        content={
+            "body": getattr(result, "body", payload),
+            "chaos_applied": getattr(result, "descriptions", []),
+            "forced_ops": forced_ops,
+        },
+        status_code=200,
+    )
 
 
 @router.get("/debug")
 def chaos_ops(_token: RequireAuth = None):
     """Return the current chaos ops config and registry."""
-    from mock_engine.config.access import ensure_config_fresh
+    from havocforge.config.access import ensure_config_fresh
 
     ensure_config_fresh()
     cfg = get_config_manager().get_root("chaos")
@@ -94,7 +102,7 @@ def chaos_ops(_token: RequireAuth = None):
 @router.post("/clear-drift")
 def clear_drift_layers(_token: RequireAuth = None):
     """Clear all drift layers for testing."""
-    from mock_engine.chaos.drift import get_drift_coordinator
+    from havocforge.chaos.drift import get_drift_coordinator
 
     coordinator = get_drift_coordinator()
     coordinator._schemas.clear()  # Clear all schema drift states
@@ -104,8 +112,8 @@ def clear_drift_layers(_token: RequireAuth = None):
 @router.post("/reload-config")
 def reload_chaos_config(_token: RequireAuth = None):
     """Reload chaos config and reset chaos manager."""
-    from mock_engine.config.access import reload_config
-    from mock_engine.chaos import access as chaos_access
+    from havocforge.config.access import reload_config
+    from havocforge.chaos import access as chaos_access
 
     # Reload config from disk
     reload_config()
@@ -119,7 +127,7 @@ def reload_chaos_config(_token: RequireAuth = None):
 @router.get("/drift-state")
 def get_drift_state(_token: RequireAuth = None):
     """Return current drift layer state for all schemas."""
-    from mock_engine.chaos.drift import get_drift_coordinator
+    from havocforge.chaos.drift import get_drift_coordinator
 
     coordinator = get_drift_coordinator()
 

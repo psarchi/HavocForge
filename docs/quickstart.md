@@ -10,8 +10,8 @@ No config required to get started. Clone the repo, run one command, and you're g
 ## 1. Clone and start
 
 ```bash
-git clone https://github.com/psarchi/mock-data-engine-api.git
-cd mock-data-engine-api
+git clone https://github.com/<your-org>/havocforge.git
+cd havocforge
 make up
 ```
 

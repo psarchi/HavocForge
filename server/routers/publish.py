@@ -3,11 +3,11 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
-from mock_engine.config import get_config_manager
-from mock_engine.context import GenContext
+from havocforge.config import get_config_manager
+from havocforge.context import GenContext
 from server.auth import RequireAuth
 from server.deps import get_generator
 from server.logging import get_logger
@@ -46,63 +46,55 @@ class PublishResponse(BaseModel):
     elapsed_seconds: float
 
 
-_kafka_publisher: KafkaPublisher | None = None
-_pubsub_publisher: PubSubPublisher | None = None
+def init_publishers_from_config(app) -> None:
+    """Eagerly construct Kafka/PubSub publisher objects on app startup.
+
+    Called from the FastAPI lifespan. Construction is sync (the underlying
+    Kafka producer / PubSub client are connected lazily on first publish),
+    but constructing the publisher objects here ensures that two concurrent
+    first-requests cannot race to instantiate them.
+    """
+    cm = get_config_manager()
+
+    app.state.kafka_publisher = None
+    app.state.pubsub_publisher = None
+
+    if cm.get_value("server.publishing.kafka.enabled", False):
+        bootstrap_servers = cm.get_value(
+            "server.publishing.kafka.bootstrap_servers", "localhost:9092"
+        )
+        app.state.kafka_publisher = KafkaPublisher(bootstrap_servers=bootstrap_servers)
+        logger.info("kafka_publisher_constructed", bootstrap_servers=bootstrap_servers)
+
+    if cm.get_value("server.publishing.pubsub.enabled", False):
+        project_id = cm.get_value("server.publishing.pubsub.project_id", "")
+        if project_id:
+            app.state.pubsub_publisher = PubSubPublisher(project_id=project_id)
+            logger.info("pubsub_publisher_constructed", project_id=project_id)
+        else:
+            logger.warning("pubsub_publisher_skipped_no_project_id")
 
 
-def get_kafka_publisher() -> KafkaPublisher:
-    """Get or create Kafka publisher instance."""
-    global _kafka_publisher
-
-    if _kafka_publisher is None:
-        try:
-            cm = get_config_manager()
-            enabled = cm.get_value("server.publishing.kafka.enabled", False)
-            if not enabled:
-                raise HTTPException(
-                    status_code=503, detail="Kafka publishing is not enabled"
-                )
-
-            bootstrap_servers = cm.get_value(
-                "server.publishing.kafka.bootstrap_servers", "localhost:9092"
-            )
-            _kafka_publisher = KafkaPublisher(bootstrap_servers=bootstrap_servers)
-        except Exception as e:
-            logger.error("kafka_publisher_init_failed", error=str(e))
-            raise HTTPException(
-                status_code=503, detail=f"Kafka publisher initialization failed: {e}"
-            )
-
-    return _kafka_publisher
+def get_kafka_publisher(request: Request) -> KafkaPublisher:
+    """FastAPI dependency: return the lifespan-initialized Kafka publisher."""
+    publisher = getattr(request.app.state, "kafka_publisher", None)
+    if publisher is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Kafka publishing is not enabled (set server.publishing.kafka.enabled=true and restart).",
+        )
+    return publisher
 
 
-def get_pubsub_publisher() -> PubSubPublisher:
-    """Get or create Pub/Sub publisher instance."""
-    global _pubsub_publisher
-
-    if _pubsub_publisher is None:
-        try:
-            cm = get_config_manager()
-            enabled = cm.get_value("server.publishing.pubsub.enabled", False)
-            if not enabled:
-                raise HTTPException(
-                    status_code=503, detail="Pub/Sub publishing is not enabled"
-                )
-
-            project_id = cm.get_value("server.publishing.pubsub.project_id", "")
-            if not project_id:
-                raise HTTPException(
-                    status_code=503, detail="Pub/Sub project_id not configured"
-                )
-
-            _pubsub_publisher = PubSubPublisher(project_id=project_id)
-        except Exception as e:
-            logger.error("pubsub_publisher_init_failed", error=str(e))
-            raise HTTPException(
-                status_code=503, detail=f"Pub/Sub publisher initialization failed: {e}"
-            )
-
-    return _pubsub_publisher
+def get_pubsub_publisher(request: Request) -> PubSubPublisher:
+    """FastAPI dependency: return the lifespan-initialized Pub/Sub publisher."""
+    publisher = getattr(request.app.state, "pubsub_publisher", None)
+    if publisher is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Pub/Sub publishing is not enabled (set server.publishing.pubsub.enabled=true and project_id, then restart).",
+        )
+    return publisher
 
 
 async def generate_and_publish(
@@ -197,21 +189,14 @@ async def generate_and_publish(
 async def publish_to_kafka(
     schema: str,
     request: PublishRequest,
+    publisher: KafkaPublisher = Depends(get_kafka_publisher),
     _token: RequireAuth = None,
 ) -> PublishResponse:
-    """Generate and publish data to Kafka topic.
+    """Generate and publish data to a Kafka topic.
 
-    Requires authentication via token.
-
-    Args:
-        schema: Schema name to generate
-        request: Publish request with count, topic, batch_size
-
-    Returns:
-        PublishResponse with results
+    Requires authentication via token. Returns 503 if Kafka publishing was
+    not enabled at startup (lifespan-time configuration).
     """
-    publisher = get_kafka_publisher()
-
     topic = request.topic or schema
 
     return await generate_and_publish(
@@ -227,21 +212,14 @@ async def publish_to_kafka(
 async def publish_to_pubsub(
     schema: str,
     request: PublishRequest,
+    publisher: PubSubPublisher = Depends(get_pubsub_publisher),
     _token: RequireAuth = None,
 ) -> PublishResponse:
-    """Generate and publish data to Google Cloud Pub/Sub topic.
+    """Generate and publish data to a Google Cloud Pub/Sub topic.
 
-    Requires authentication via token.
-
-    Args:
-        schema: Schema name to generate
-        request: Publish request with count, topic, batch_size
-
-    Returns:
-        PublishResponse with results
+    Requires authentication via token. Returns 503 if Pub/Sub publishing was
+    not enabled at startup (lifespan-time configuration).
     """
-    publisher = get_pubsub_publisher()
-
     topic = request.topic or schema
 
     return await generate_and_publish(
@@ -254,49 +232,43 @@ async def publish_to_pubsub(
 
 
 @router.get("/health")
-async def health_check(_token: RequireAuth = None) -> dict[str, Any]:
-    """Check health of all configured publishers.
+async def health_check(http_request: Request, _token: RequireAuth = None) -> dict[str, Any]:
+    """Report health for whichever publishers were initialized at startup."""
+    health: dict[str, Any] = {}
 
-    Requires authentication via token.
+    kafka = getattr(http_request.app.state, "kafka_publisher", None)
+    if kafka is not None:
+        try:
+            health["kafka"] = kafka.health_check()
+        except Exception as e:
+            logger.error("kafka_health_check_failed", error=str(e))
+            health["kafka"] = {"error": str(e)}
 
-    Returns:
-        dict with health status of each publisher
-    """
-    health = {}
-
-    try:
-        cm = get_config_manager()
-
-        if cm.get_value("server.publishing.kafka.enabled", False):
-            try:
-                publisher = get_kafka_publisher()
-                health["kafka"] = publisher.health_check()
-            except Exception as e:
-                health["kafka"] = {"error": str(e)}
-
-        if cm.get_value("server.publishing.pubsub.enabled", False):
-            try:
-                publisher = get_pubsub_publisher()  # type: ignore[assignment]
-                health["pubsub"] = publisher.health_check()
-            except Exception as e:
-                health["pubsub"] = {"error": str(e)}
-
-    except Exception as e:
-        logger.error("health_check_failed", error=str(e))
+    pubsub = getattr(http_request.app.state, "pubsub_publisher", None)
+    if pubsub is not None:
+        try:
+            health["pubsub"] = pubsub.health_check()
+        except Exception as e:
+            logger.error("pubsub_health_check_failed", error=str(e))
+            health["pubsub"] = {"error": str(e)}
 
     return {"publishers": health}
 
 
-async def shutdown_publishers():
-    """Cleanup publishers on shutdown."""
-    global _kafka_publisher, _pubsub_publisher
+async def shutdown_publishers(app) -> None:
+    """Close lifespan-owned publishers on app shutdown."""
+    kafka = getattr(app.state, "kafka_publisher", None)
+    if kafka is not None:
+        try:
+            await kafka.close()
+        finally:
+            app.state.kafka_publisher = None
 
-    if _kafka_publisher:
-        await _kafka_publisher.close()
-        _kafka_publisher = None
-
-    if _pubsub_publisher:
-        await _pubsub_publisher.close()
-        _pubsub_publisher = None
+    pubsub = getattr(app.state, "pubsub_publisher", None)
+    if pubsub is not None:
+        try:
+            await pubsub.close()
+        finally:
+            app.state.pubsub_publisher = None
 
     logger.info("publishers_shutdown_complete")

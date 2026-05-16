@@ -4,7 +4,7 @@ from __future__ import annotations
 
 def test_default_configs_load():
     """Ensure config manager loads default configs without unexpected keys errors."""
-    from mock_engine.config import get_config_manager
+    from havocforge.config import get_config_manager
 
     cm = get_config_manager()
     server = cm.get_root("server")

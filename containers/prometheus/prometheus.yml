@@ -2,34 +2,34 @@ global:
   scrape_interval: 15s
   evaluation_interval: 15s
   external_labels:
-    monitor: 'mock-engine-monitor'
+    monitor: 'havocforge-monitor'
 
 scrape_configs:
-  - job_name: 'mock-engine-api'
+  - job_name: 'havocforge-api'
     static_configs:
       - targets: ['api:8000']
     metrics_path: '/metrics/'
     scrape_interval: 5s
 
-  - job_name: 'mock-engine-batch-sync'
+  - job_name: 'havocforge-batch-sync'
     static_configs:
       - targets: ['batch_sync:8001']
     metrics_path: '/metrics'
     scrape_interval: 5s
 
-  - job_name: 'mock-engine-watcher'
+  - job_name: 'havocforge-watcher'
     static_configs:
       - targets: ['watcher:8002']
     metrics_path: '/metrics'
     scrape_interval: 5s
 
-  - job_name: 'mock-engine-metrics-collector'
+  - job_name: 'havocforge-metrics-collector'
     static_configs:
       - targets: ['metrics_collector:8003']
     metrics_path: '/metrics'
     scrape_interval: 5s
 
-  - job_name: 'mock-engine-generation-worker'
+  - job_name: 'havocforge-generation-worker'
     static_configs:
       - targets: ['generation-worker:8004']
     metrics_path: '/metrics'

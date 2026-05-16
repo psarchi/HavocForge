@@ -97,7 +97,7 @@ server:
     metrics_enabled:
       description: expose Prometheus metrics endpoint
       type: bool
-      value: false
+      value: true
     prometheus_path:
       description: metrics endpoint path
       type: str
@@ -111,7 +111,7 @@ server:
       port:
         description: Grafana service port
         type: int
-        value: 3000
+        value: 3010
       admin_user:
         description: Grafana admin username
         type: str
@@ -263,19 +263,19 @@ server:
       db:
         description: PostgreSQL database name
         type: str
-        value: mock_engine
+        value: havocforge
       user:
         description: PostgreSQL username
         type: str
-        value: mock_user
+        value: havocforge
       password:
         description: PostgreSQL password
         type: str
-        value: mock_pass
+        value: havocforge
       url:
         description: PostgreSQL connection URL
         type: str
-        value: postgresql://mock_user:mock_pass@postgres:5432/mock_engine
+        value: postgresql://havocforge:havocforge@postgres:5432/havocforge
       retention_days:
         description: dataset retention period in PostgreSQL (days)
         type: int

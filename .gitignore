@@ -19,6 +19,10 @@ htmlcov/
 .pyre/
 .ruff_cache/
 
+# Virtual environments
+.venv/
+venv/
+
 # IDE
 .idea/
 .vscode/
@@ -40,3 +44,7 @@ postgres-data/
 # Local profiling output
 profiles/
 data/profile/
+
+# Personal / local-only notes — not part of the project
+_GITHUB_SETTINGS.md
+_old_for_deletion/

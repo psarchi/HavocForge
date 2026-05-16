@@ -4,7 +4,7 @@ from typing import Any, Dict
 
 import pytest
 
-from mock_engine.chaos.ops.network.burst import BurstOp
+from havocforge.chaos.ops.network.burst import BurstOp
 
 
 def test_burst_rest(

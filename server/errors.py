@@ -4,21 +4,21 @@ from typing import Any, Iterable, Tuple, Type
 
 from fastapi.responses import JSONResponse
 
-from mock_engine.errors import MockEngineError, PoolEmptyError, SchemaConfigError
-from mock_engine.chaos.errors import (
+from havocforge.errors import HavocforgeError, PoolEmptyError, SchemaConfigError
+from havocforge.chaos.errors import (
     ChaosConfigError,
     ChaosOpError,
     ChaosOpNotFoundError,
     ChaosOpValidationError,
     ChaosRegistryError,
 )
-from mock_engine.config.errors import (
+from havocforge.config.errors import (
     ConfigDefaultsError,
     ConfigSchemaError,
 )
-from mock_engine.core.errors import UnknownGeneratorError
-from mock_engine.generators.errors import GeneratorError, InvalidParameterError
-from mock_engine.schema.errors import (
+from havocforge.core.errors import UnknownGeneratorError
+from havocforge.generators.errors import GeneratorError, InvalidParameterError
+from havocforge.schema.errors import (
     SchemaError,
     SchemaValidationError,
     SchemaRegistryKeyError,
@@ -43,7 +43,7 @@ ERROR_MAP: Iterable[Tuple[Type[BaseException], str, int]] = (
     (UnknownGeneratorError, "ERR_GENERATOR_UNKNOWN", 400),
     (InvalidParameterError, "ERR_GENERATOR_PARAMS", 400),
     (GeneratorError, "ERR_GENERATOR", 500),
-    (MockEngineError, "ERR_ENGINE", 400),
+    (HavocforgeError, "ERR_ENGINE", 400),
 )
 
 

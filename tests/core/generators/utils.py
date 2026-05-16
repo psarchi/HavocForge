@@ -4,10 +4,10 @@ import yaml
 from pathlib import Path
 from typing import Any, Dict
 
-from mock_engine import api as engine_api
-from mock_engine.context import GenContext
-from mock_engine.schema.builder import build_schema
-from mock_engine.schema.registry import SchemaRegistry
+from havocforge import api as engine_api
+from havocforge.context import GenContext
+from havocforge.schema.builder import build_schema
+from havocforge.schema.registry import SchemaRegistry
 
 
 SCHEMAS_DIR = Path(__file__).resolve().parent.parent / "schemas"
@@ -61,8 +61,8 @@ def generate_from_schema(
 
 def get_all_registered_generators() -> list[str]:
     """Get all registered generator keys."""
-    from mock_engine.registry import Registry
-    from mock_engine.generators.base import BaseGenerator
+    from havocforge.registry import Registry
+    from havocforge.generators.base import BaseGenerator
 
     all_gens = Registry.get_all(BaseGenerator)
     return sorted(all_gens.keys())

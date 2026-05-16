@@ -59,7 +59,7 @@ async def health_ready(request: Request) -> JSONResponse:
         all_healthy = False
 
     try:
-        from mock_engine.persistence.client import PostgresClient
+        from havocforge.persistence.client import PostgresClient
 
         pg_client = PostgresClient()
         await pg_client.connect()

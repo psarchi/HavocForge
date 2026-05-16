@@ -1,4 +1,4 @@
-from mock_engine.api import build_generator, generate_many, MockEngine
+from havocforge.api import build_generator, generate_many, Havocforge
 
 
 def test_functional_vs_oop_parity():
@@ -18,7 +18,7 @@ def test_functional_vs_oop_parity():
     gen = build_generator(spec)
     func_rows = generate_many(gen, n=3, seed=123, locale="en_US")
 
-    engine = MockEngine(seed=123, locale="en_US")
+    engine = Havocforge(seed=123, locale="en_US")
     gen2 = engine.build(spec)
     oop_rows = engine.generate_many(gen2, n=3)
 

@@ -21,7 +21,7 @@ def setup_logging() -> None:
     - request_id: Request correlation ID (from context)
     - Additional contextual fields
     """
-    from mock_engine.config import get_config_manager
+    from havocforge.config import get_config_manager
 
     cm = get_config_manager()
     server_cfg = cm.get_root("server")

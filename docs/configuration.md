@@ -39,7 +39,7 @@ The config reloads automatically when files change (SHA1-based detection) so you
 | `server.persistence.redis.ttl_hours` | `24` | How long datasets live in Redis |
 | `server.persistence.redis.maxmemory` | `10gb` | Redis max memory |
 | `server.persistence.redis.maxmemory_policy` | `allkeys-lru` | Eviction policy |
-| `server.persistence.postgres.url` | `postgresql://mock_user:mock_pass@postgres:5432/mock_engine` | Postgres connection URL |
+| `server.persistence.postgres.url` | `postgresql://havocforge:havocforge@postgres:5432/havocforge` | Postgres connection URL |
 | `server.persistence.postgres.retention_days` | `30` | How long datasets live in Postgres |
 
 ### Streaming
@@ -201,7 +201,7 @@ Every config key maps to an env var - replace dots with underscores and uppercas
 SERVER_PORT=8000
 SERVER_WORKERS=4
 PERSISTENCE_REDIS_URL=redis://localhost:6379
-PERSISTENCE_POSTGRES_URL=postgresql://user:pass@localhost:5432/mock_engine
+PERSISTENCE_POSTGRES_URL=postgresql://user:pass@localhost:5432/havocforge
 PREGENERATION_ENABLED=true
 SERVER_OBSERVABILITY_LOGGING_ENABLED=true
 SERVER_OBSERVABILITY_LOGGING_FORMAT=console

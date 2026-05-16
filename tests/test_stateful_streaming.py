@@ -32,10 +32,11 @@ except ImportError:
     sys.modules["redis"] = redis_mod
     sys.modules["redis.asyncio"] = redis_asyncio
 
-from mock_engine.contracts.stateful_timestamp import StatefulTimestampGeneratorSpec
-from mock_engine.schema.registry import SchemaRegistry
-from mock_engine.pregeneration.worker import _discover_stateful_fields
+from havocforge.contracts.stateful_timestamp import StatefulTimestampGeneratorSpec
+from havocforge.schema.registry import SchemaRegistry
+from havocforge.pregeneration.worker import _discover_stateful_fields
 from server.routers import streaming
+from server.routers.streaming import state as streaming_state
 
 
 class FakeRedis:
@@ -64,17 +65,17 @@ class FakeRedis:
 
 @pytest.fixture(autouse=True)
 def clear_stateful_caches():
-    streaming._STATEFUL_META.clear()
+    streaming_state._STATEFUL_META.clear()
     try:
-        from mock_engine.chaos import get_temporal_tracker
+        from havocforge.chaos import get_temporal_tracker
 
         get_temporal_tracker().clear_all()
     except Exception:
         pass
     yield
-    streaming._STATEFUL_META.clear()
+    streaming_state._STATEFUL_META.clear()
     try:
-        from mock_engine.chaos import get_temporal_tracker
+        from havocforge.chaos import get_temporal_tracker
 
         get_temporal_tracker().clear_all()
     except Exception:
