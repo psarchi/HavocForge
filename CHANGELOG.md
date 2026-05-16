@@ -4,6 +4,54 @@ All notable changes to this project are documented here. Format roughly follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); pre-1.0 versions may
 include breaking changes between minor versions.
 
+## [0.2.0] — 2026-05-16
+
+LLM-assisted authoring: two agents that turn natural language into valid
+Havocforge config.
+
+### Added
+
+- **`agents/` package** — two provider-agnostic agents on top of
+  [LiteLLM](https://docs.litellm.ai/) (one interface, 100+ providers):
+  - **Schema designer** (`agents/schema/designer.py`) — single-tool pattern.
+    Model emits a schema via the `emit_schema` tool; agent validates via
+    `havocforge.schema.builder.build_schema`, retries up to 3× on error with
+    the validation message fed back, then runs a sample generation.
+  - **Chaos designer** (`agents/chaos/designer.py`) — multi-step tool calling.
+    Discrete tools (`enable_op`, `set_budget`, `set_selection`, `finalize`)
+    build a chaos profile incrementally; agent validates every enabled op
+    against the live registry (`Registry.get_all(BaseChaosOp)`) before
+    emitting YAML.
+- **CLI** — `python -m agents.cli {schema|chaos} "..."` with `--model`,
+  `--api-base`, `--temperature`, `--out`, `-v` flags. Config precedence:
+  CLI > env (`HAVOCFORGE_AGENT_MODEL`) > `~/.havocforge/agent.toml` > default
+  (`ollama_chat/qwen3:8b`).
+- **System prompts as versionable Markdown** (`agents/prompts/*.md`) — the
+  schema prompt catalogues every generator type + parameter; the chaos prompt
+  catalogues all 19 ops grouped by category with heuristics for common
+  scenarios ("Q4 traffic", "schema migration", etc.).
+- New optional dependency: `litellm>=1.84.0`. Pulled in only when the
+  `agents/` package is used.
+
+### Verified
+
+- End-to-end with local `ollama_chat/qwen3:8b` (Ollama, 5.2 GB, free): both
+  agents complete in 1 turn on representative prompts. Schema agent produced
+  valid configs for simple user / nested e-commerce order on first attempt;
+  chaos agent picked the right op set + probabilities for "Black Friday
+  checkout" and "botched schema migration" prompts.
+
+### Known limitations
+
+- Smaller open models (8B class) occasionally hallucinate field types
+  (`integer` instead of `int`). The validation loop catches these; bigger
+  cloud models nail it first try.
+- Schema agent's cross-schema correlation support (`bound_to`, `pool`) is
+  mentioned in the prompt but produces mixed results on small models. Reliable
+  on Claude / GPT-4 / Gemini.
+
+---
+
 ## [0.1.0] — 2026-05-16
 
 Renamed and architecturally hardened from the upstream `mock-data-engine-api`
