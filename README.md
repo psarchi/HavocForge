@@ -180,6 +180,20 @@ asyncio.run(stream())
 
 Resume per-user state across reconnects with `?user_id=<id>`. Force chaos per-stream with `?forced_chaos=truncate,encoding_corrupt`.
 
+## Agents (LLM-assisted authoring)
+
+Two agents under [`agents/`](agents/README.md), backed by any LiteLLM-supported model (default: local `ollama_chat/qwen3:8b`, also tested with Anthropic / OpenAI):
+
+```bash
+# natural-language → valid Havocforge YAML schema, with validation loop + sample records
+python -m agents.cli schema "a user with email, age 18-90, signup date in 2024"
+
+# natural-language → chaos.yaml profile via multi-step tool calling
+python -m agents.cli chaos "stress test Black Friday checkout — bursts, latency, schema drift"
+```
+
+The schema agent runs single-tool structured output (one `emit_schema` call, validated via the engine's own `build_schema` and retried on error). The chaos agent runs multi-step tool calling with discrete tools (`enable_op`, `set_budget`, `set_selection`, `finalize`) and validates against the live op registry before emitting YAML. See [`agents/README.md`](agents/README.md) for the model matrix, config precedence (CLI > env > `~/.havocforge/agent.toml` > default), and programmatic API.
+
 ## Tech stack
 
 `Python 3.11` · `FastAPI` · `uvicorn` · `Pydantic v2` · `asyncio` · `WebSockets` ·
